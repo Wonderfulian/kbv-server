@@ -1,4 +1,4 @@
-# Korea Business Verify (KBV)
+﻿# Korea Business Verify (KBV)
 
 **KBV is a remote MCP server that verifies Korean businesses.** Give it a 10-digit Korean business registration number (사업자등록번호) and it returns the registration status (active / suspended / closed), tax type, and — optionally — whether the number matches a representative name and opening date. Data comes from the Korea National Tax Service (NTS) in real time and is returned as clean, English-normalized JSON.
 
@@ -13,7 +13,7 @@ npm run dev                # → http://localhost:8080
 ```
 
 - MCP endpoint: `POST /mcp` (Streamable HTTP transport)
-- Health check: `GET /healthz`
+- Health check: `GET /health`
 
 Connect with MCP Inspector: `npx @modelcontextprotocol/inspector`, transport **Streamable HTTP**, URL `http://localhost:8080/mcp`.
 

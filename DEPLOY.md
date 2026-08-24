@@ -1,4 +1,4 @@
-# KBV 서버 Cloud Run 배포 가이드 (초보자용)
+﻿# KBV 서버 Cloud Run 배포 가이드 (초보자용)
 
 > 이 문서는 로컬에서 완성·검증된 KBV 서버를 Google Cloud Run(서울 리전)에 올리는 절차입니다.
 > 소요 시간: 처음이면 30~40분. 비용: min-instances 0 설정이라 트래픽이 없으면 **0원에 가깝습니다**.
@@ -65,7 +65,7 @@ gcloud run deploy kbv-server --source . --region asia-northeast3 --allow-unauthe
 
 ```powershell
 # 1) 헬스체크 — {"ok":true}가 나오면 성공
-Invoke-RestMethod https://서비스URL/healthz
+Invoke-RestMethod https://서비스URL/health
 
 # 2) MCP Inspector로 실제 툴 호출
 npx @modelcontextprotocol/inspector
@@ -90,3 +90,4 @@ npx @modelcontextprotocol/inspector
 | 배포 중 권한 오류 | 2번의 `gcloud services enable`을 건너뛰었거나 결제 계정 미연결 |
 | 서버는 떴는데 툴 호출 시 upstream_unavailable | Secret 등록/권한(3번) 문제 — 키가 **디코딩 키**인지도 확인 |
 | 429 quota 오류 | 국세청 일일 쿼터(개발계정 10,000건) 소진 — 다음날 자동 리셋 |
+| 특정 경로만 구글 404 (서비스는 정상) | run.app 주소에서 `z`로 끝나는 경로(`/healthz` 등)는 구글 관문이 가로챕니다 — `/health`처럼 z로 끝나지 않는 경로를 쓰세요. 진짜 라우팅 문제인지는 `/` 요청이 Express의 "Cannot GET /"을 주는지로 구분 |

@@ -36,7 +36,9 @@ const deps: Deps = {
 export const app = express();
 app.use(express.json({ limit: '1mb' }));
 
-app.get('/healthz', (_req, res) => {
+// NOTE: not /healthz — Google's frontend intercepts *z paths (healthz, varz)
+// on run.app URLs and returns its own 404 before the request reaches us.
+app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
