@@ -55,8 +55,8 @@ business, verification, kyb, finance, government, korea, api, due-diligence
 
 - 방법: 저장소의 [server.json](server.json) + GitHub Actions([publish-mcp-registry.yml](.github/workflows/publish-mcp-registry.yml))가 `v*` 태그 push 시 자동 게시
 - 새 버전 게시: server.json의 version 올리고 `git tag v0.2.0 && git push origin v0.2.0`
-- 등재 확인: https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.wonderfulian/kbv-server
-- [ ] 등재 확인됨
+- 등재 확인: https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.Wonderfulian/kbv-server
+- [x] **등재 확인됨** (2026-08-24, status: active) — 주의: 네임스페이스는 GitHub 계정명 대소문자까지 일치해야 함(`io.github.Wonderfulian`)
 
 ### 2. PulseMCP — 🤖 자동 (별도 행동 불가/불필요)
 
@@ -86,20 +86,22 @@ business, verification, kyb, finance, government, korea, api, due-diligence
 3. 초안 편집기에서: 이름 = Name, 설명 = Short blurb, 본문 = Long description(연결 URL 포함), 태그 = 위 Tags → **저장하면 자동 게시**
 - [ ] 게시됨
 
-### 6. awesome-mcp-korea — 🤖 자동 (PR 생성, 병합은 메인테이너 몫)
+### 6. awesome-mcp-korea — 🧑 사람 ~5분 (GitHub 웹 에디터가 포크+PR 자동 생성)
 
-- 대상: https://github.com/darjeeling/awesome-mcp-korea → README `📊 Public Data` 섹션
-- 항목:
-  ```
-  **[Wonderfulian/kbv-server](https://github.com/Wonderfulian/kbv-server)** – 국세청 API 기반 사업자등록 상태조회·진위확인 원격 MCP 서버. 설치·API키 불필요, URL 하나로 연결. (Korean business verification MCP server via NTS — free during pilot)
-  ```
+1. 로그인된 브라우저로 https://github.com/darjeeling/awesome-mcp-korea/edit/main/README.md 열기 → "Fork this repository" 안내가 나오면 수락 (자동 포크)
+2. `## 📊 Public Data` 섹션을 찾아 아래 한 줄을 목록에 추가:
+   ```
+   **[Wonderfulian/kbv-server](https://github.com/Wonderfulian/kbv-server)** – 국세청 API 기반 사업자등록 상태조회·진위확인 원격 MCP 서버. 설치·API키 불필요, URL 하나로 연결. (Korean business verification MCP server via NTS — free during pilot)
+   ```
+3. **Commit changes** → **Create pull request** (제목 예: `Add Korea Business Verify (KBV)`)
 - [ ] PR 생성됨  - [ ] 병합됨
 
 ## 분담 요약
 
 | 작업 | 담당 |
 |---|---|
-| 저장소 파일(LICENSE, server.json, glama.json, CI), 제출 카피 전체, 레지스트리 게시, awesome-mcp-korea PR | 🤖 에이전트 |
+| 저장소 파일(LICENSE, server.json, glama.json, CI), 제출 카피 전체, 공식 레지스트리 게시 ✅완료 | 🤖 에이전트 |
 | Smithery 웹 UI 게시 (~10분, API 키 공유 불필요) | 🧑 영조님 |
 | Glama 폼 제출 (~5분) | 🧑 영조님 |
 | mcp.so 폼 제출 (~10분) | 🧑 영조님 |
+| awesome-mcp-korea 웹 에디터 PR (~5분) | 🧑 영조님 |

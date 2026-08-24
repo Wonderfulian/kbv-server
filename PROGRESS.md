@@ -5,8 +5,8 @@
 
 ## 현재 상태 (한 줄 요약)
 
-**✅ Phase 1 완료 (2026-08-24).** Cloud Run 배포 + Claude/ChatGPT 양쪽 커넥터에서 접속·조회 성공.
-Claude 커넥터 경유 전 구간(Claude → Cloud Run → 국세청) 실호출 검증까지 마침. 다음은 Phase 1.5 (공개 준비).
+**✅ Phase 1 완료 + Phase 1.5 절반 진행 (2026-08-24).** 서버 운영 중, GitHub 공개, **공식 MCP Registry 등재 완료**.
+다음 할 일은 딱 두 갈래: ① 영조님의 디렉토리 웹 제출 4곳([SUBMISSIONS.md](SUBMISSIONS.md) 안내대로) ② 다음 세션에서 REST 엔드포인트 + llms.txt 구현.
 
 - **서비스 URL**: https://kbv-server-f7vfitmlkq-du.a.run.app
 - **MCP 엔드포인트**: `https://kbv-server-f7vfitmlkq-du.a.run.app/mcp` (POST 전용)
@@ -53,13 +53,26 @@ Claude 커넥터 경유 전 구간(Claude → Cloud Run → 국세청) 실호출
 
 > 참고: `/mcp`를 브라우저로 열면 "Method not allowed"가 나오는데 이는 정상입니다(브라우저는 GET, MCP는 POST). 눈으로 확인하려면 `/health`를 여세요.
 
+### 2026-08-24 (저녁) — GitHub 공개 + MCP 디렉토리 등록
+
+- **GitHub 공개**: 푸시 전 보안 감사(커밋 이력 내 .env·서비스키·개인정보 전수 검색 → 전부 CLEAN) 후 https://github.com/Wonderfulian/kbv-server 공개 (main 브랜치, 영문 설명, 토픽 8개)
+- **README 공개용 개편**: 연결 방법(Claude/ChatGPT/Cursor), 실측 I/O 예시, 국세청 출처·이용허락범위 제한 없음, 개인정보 방침, 가격 안내. 카피 원칙: **"free during pilot"** (그냥 "free"로 각인 금지)
+- **MIT LICENSE** 추가 (사용자 결정 — 수익원은 코드가 아닌 호스팅)
+- **디렉토리 조사** (5곳): PulseMCP는 직접 제출 중단(공식 레지스트리에서 자동 수집), Smithery는 URL 방식 웹 게시, Glama·mcp.so는 웹 폼, awesome-mcp-korea는 PR — 상세는 [SUBMISSIONS.md](SUBMISSIONS.md)
+- **공식 MCP Registry 등재 성공** (`io.github.Wonderfulian/kbv-server`, active): server.json + GitHub Actions OIDC 워크플로로 태그 푸시 시 자동 게시. 3번의 시도 끝에 성공 — ①스키마 구버전 ②**네임스페이스 대소문자 불일치**(io.github.wonderfulian ≠ 권한 io.github.Wonderfulian)가 원인이었음
+- **보안 원칙 확정**: 자격 증명 관리자 읽기 금지, API 키 채팅 공유 금지 → 인증 필요한 제출은 전부 사용자 웹 UI 절차로 문서화
+
 ## 다음에 할 일
 
 ### 1. Phase 1.5 — 공개 준비 (진행 중)
-- [x] README.md 외부 공개용 개편 (영문, AEO 구조화, 연결 방법·라이선스·개인정보·가격 안내) — 2026-08-24
+- [x] README.md 외부 공개용 개편 (영문, AEO 구조화) — 2026-08-24
+- [x] GitHub 공개 저장소 (https://github.com/Wonderfulian/kbv-server, MIT 라이선스) — 2026-08-24
+- [x] **공식 MCP Registry 등재** (`io.github.Wonderfulian/kbv-server`, status: active) — 2026-08-24. 태그 푸시로 자동 게시(GitHub Actions OIDC). PulseMCP는 여기서 자동 수집 예정
+- [ ] 디렉토리 사람 단계 4곳: Smithery / Glama / mcp.so / awesome-mcp-korea PR — 방법·복붙 카피는 [SUBMISSIONS.md](SUBMISSIONS.md)
 - [ ] REST 엔드포인트: `GET /v1/business/{brno}/status`, `POST /v1/business/verify`
 - [ ] `/llms.txt`, 랜딩 문서(AEO 원칙)
-- [ ] MCP 디렉토리 3곳 이상 등록
+
+**등재 과정에서 배운 것**: ① 레지스트리 네임스페이스는 GitHub 계정명 **대소문자까지** 일치 필요 (`io.github.Wonderfulian`) ② server.json의 $schema는 현행 버전(2025-12-11) 사용 ③ PowerShell 5.1에서 커밋 메시지에 큰따옴표 넣으면 인수 깨짐 — 메시지에 따옴표 금지
 
 ### 2. 선택 작업 (급하지 않음)
 - GitHub 저장소 만들어 push → Cloud Run "Set up continuous deployment" 연결 (push만 하면 자동 배포)
