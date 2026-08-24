@@ -5,8 +5,8 @@
 
 ## 현재 상태 (한 줄 요약)
 
-**Phase 1 서버가 Cloud Run에 배포되어 실제 국세청 조회까지 검증 완료.**
-남은 것은 Claude.ai 커넥터 등록 테스트 하나뿐 (Claude 앱 불안정으로 보류 중).
+**✅ Phase 1 완료 (2026-08-24).** Cloud Run 배포 + Claude/ChatGPT 양쪽 커넥터에서 접속·조회 성공.
+Claude 커넥터 경유 전 구간(Claude → Cloud Run → 국세청) 실호출 검증까지 마침. 다음은 Phase 1.5 (공개 준비).
 
 - **서비스 URL**: https://kbv-server-f7vfitmlkq-du.a.run.app
 - **MCP 엔드포인트**: `https://kbv-server-f7vfitmlkq-du.a.run.app/mcp` (POST 전용)
@@ -46,22 +46,22 @@
 
 ---
 
-## 다음에 할 일
-
-### 1. Claude.ai 커넥터 등록 (Phase 1 완료 기준, 5분) ← 앱 안정되면 바로
-1. https://claude.ai → Settings → **Connectors** → **Add custom connector**
-2. URL: `https://kbv-server-f7vfitmlkq-du.a.run.app/mcp`
-3. 새 대화에서 커넥터 켜고: *"사업자번호 124-81-00998 상태 확인해줘"*
-4. Claude가 툴을 호출해 `active` 결과를 보여주면 **Phase 1 공식 완료** — DESIGN.md 규칙대로 여기서 컨펌 후 다음 Phase 진행
+### 2026-08-24 (오후) — Phase 1 완료 확정
+- URL 정상화 확인 후 사용자가 **Claude와 ChatGPT 양쪽 커넥터**에서 접속·조회 성공
+- Claude 커넥터 경유 전 구간 재검증: /health 200, 삼성전자 → active, 틀린 대표자명 verify → identity_match false
+- DESIGN.md Phase 1 체크리스트 5/5 완료
 
 > 참고: `/mcp`를 브라우저로 열면 "Method not allowed"가 나오는데 이는 정상입니다(브라우저는 GET, MCP는 POST). 눈으로 확인하려면 `/health`를 여세요.
 
-### 2. Phase 1.5 — 공개 준비 (Phase 1 컨펌 후)
-- REST 엔드포인트: `GET /v1/business/{brno}/status`, `POST /v1/business/verify`
-- `/llms.txt`, 랜딩 문서(AEO 원칙)
-- MCP 디렉토리 3곳 이상 등록
+## 다음에 할 일
 
-### 3. 선택 작업 (급하지 않음)
+### 1. Phase 1.5 — 공개 준비 (진행 중)
+- [x] README.md 외부 공개용 개편 (영문, AEO 구조화, 연결 방법·라이선스·개인정보·가격 안내) — 2026-08-24
+- [ ] REST 엔드포인트: `GET /v1/business/{brno}/status`, `POST /v1/business/verify`
+- [ ] `/llms.txt`, 랜딩 문서(AEO 원칙)
+- [ ] MCP 디렉토리 3곳 이상 등록
+
+### 2. 선택 작업 (급하지 않음)
 - GitHub 저장소 만들어 push → Cloud Run "Set up continuous deployment" 연결 (push만 하면 자동 배포)
 - `gcloud components update` (CLI 구버전 알림 해소)
 - 국세청 쿼터 모니터링: 개발계정 10,000건/일 — 트래픽 생기면 운영계정 승급 신청 검토
