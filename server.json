@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.wonderfulian/kbv-server",
+  "name": "io.github.Wonderfulian/kbv-server",
   "title": "Korea Business Verify (KBV)",
   "description": "Real-time Korean business verification via the National Tax Service (NTS). Free during pilot.",
   "repository": {
