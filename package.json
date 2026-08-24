@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Korea Business Verify (KBV) - remote MCP server for verifying Korean businesses via the NTS registry",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22"

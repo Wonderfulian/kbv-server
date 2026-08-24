@@ -1,6 +1,6 @@
 # Korea Business Verify (KBV) — MCP Server
 
-**KBV is a free, hosted MCP server that verifies Korean businesses in real time.** Give it a 10-digit Korean business registration number (사업자등록번호) and it returns the registration status (active / suspended / closed), tax type, and — optionally — whether the number matches a representative name and opening date. Data comes live from the Korea National Tax Service (NTS) and is returned as clean, English-normalized JSON.
+**KBV is a hosted MCP server that verifies Korean businesses in real time — free during its pilot phase.** Give it a 10-digit Korean business registration number (사업자등록번호) and it returns the registration status (active / suspended / closed), tax type, and — optionally — whether the number matches a representative name and opening date. Data comes live from the Korea National Tax Service (NTS) and is returned as clean, English-normalized JSON.
 
 No account, no API key, no installation — connect any MCP-capable agent to one URL:
 
