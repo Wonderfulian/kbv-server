@@ -1,12 +1,13 @@
 # KBV 프로젝트 진행 기록
 
-> 마지막 업데이트: 2026-08-25
+> 마지막 업데이트: 2026-08-26
 > 이 문서는 세션별 작업 내용과 다음 할 일을 기록합니다. (설계 사양은 [DESIGN.md](DESIGN.md) 참고)
 
 ## 현재 상태 (한 줄 요약)
 
-**✅ Phase 1.5 디렉토리 목표 달성 (2026-08-25).** 등재 확정 3곳: **공식 MCP Registry + Smithery + Glama** — DESIGN.md Phase 1.5 완료 기준("디렉토리 3곳 이상") 충족. mcp.so는 이슈 제출됨(처리 대기).
-다음 세션 첫 작업: **REST + llms.txt 코드 초안이 작성만 되고 미검증 상태** → typecheck·테스트부터 돌리고 배포.
+**✅ Phase 1.5 완료, Phase 2(수익화) 진입 (2026-08-26).** 작업지시서는 [PHASE2-PLAN-v2.md](PHASE2-PLAN-v2.md)가 기준.
+디렉토리 3곳 등재 확정(공식 Registry·Smithery·Glama), REST 2종 구현·검증 완료(배포는 다음 단계와 함께).
+**다음 세션 시작점: v2 단계 1 — 일괄검증 툴 `check_korean_business_batch`.**
 
 - **서비스 URL**: https://kbv-server-f7vfitmlkq-du.a.run.app
 - **MCP 엔드포인트**: `https://kbv-server-f7vfitmlkq-du.a.run.app/mcp` (POST 전용)
@@ -86,18 +87,38 @@
   gcloud logging read "resource.labels.service_name=kbv-server AND jsonPayload.event=`"tool_call`"" --project=kbv-server --freshness=7d --format="value(jsonPayload.tool,jsonPayload.outcome)"
   ```
 
+### 2026-08-26 (오후) — 세션 간 꼬임 해소 + REST 검증 완료
+
+- **꼬임의 정체**: Phase 2 계획·정찰·실측이 별도 세션(채팅)에서 먼저 진행되어 [PHASE2-PLAN-v2.md](PHASE2-PLAN-v2.md)가 작성돼 있었는데, 이 터미널 세션은 그걸 모른 채 낡은 "다음 세션 안건"(정찰·모니터링 — 이미 완료된 것)을 기록했음
+- **정합화 조치**:
+  - [PHASE2-PLAN-v2.md](PHASE2-PLAN-v2.md)를 **기준 작업지시서로 확정** — 아래 할 일 목록을 v2 단계 순서로 교체
+  - [MONITORING.md](MONITORING.md) 신설 — 실측 기준선 + tool_call/nts_call 집계 명령 + 재측정 기록표 (구 안건 "모니터링 확인법 정리"를 겸함)
+  - v2 §7 범위 제외에 따라 **랜딩·llms.txt 보류**: `src/landing.ts` → `src/landing.ts.shelved`(컴파일·커밋 제외), app.ts 라우트와 관련 테스트 제거
+- **REST 검증 완료**: `npm run typecheck` 통과 + 테스트 **74개 전부 통과**(기존 62 + REST 12) → 코드 커밋. v2 §3-1 요구사항("MCP 툴과 동일한 내부 함수 공유")은 service.ts 공용 계층으로 이미 충족
+- **배포는 아직 안 함** — 단계 1(batch 툴 + `POST /v1/business/batch`)과 묶어서 한 번에 배포 예정
+
 ## 다음에 할 일
 
-### 1. Phase 1.5 — 공개 준비 (진행 중)
+### 1. Phase 2 — 수익화 (기준 문서: [PHASE2-PLAN-v2.md](PHASE2-PLAN-v2.md), 단계마다 멈추고 보고)
+- [ ] **단계 1 ← 다음 세션 시작점**: 일괄검증 툴 `check_korean_business_batch` (1~100건, 국세청 1회 호출, 번호별 캐시 재사용) + REST `POST /v1/business/batch` + README·server.json 갱신 → 테스트 통과 후 **REST 2종과 함께 첫 배포·라이브 검증**
+- [ ] 단계 2: x402 결제 부착 — **구현 전 최신 스펙 조사·보고 필수**(v2 §3-2), 무료 티어 IP당 10회/일, Base Sepolia 전 구간 검증 → 메인넷 실결제 1건
+- [ ] 단계 3: x402 Bazaar 등록
+- [ ] 단계 4: 빌드 후기 글 배포 (초안은 별도 채팅 세션)
+- [ ] 단계 5: awesome-mcp-korea PR ([SUBMISSIONS.md](SUBMISSIONS.md) 6번 절차)
+- [ ] 단계 6: 홍보 1주 후 tool_call 재측정 → [MONITORING.md](MONITORING.md) 표에 기록 (성공 기준: 주 20건 이상)
+
+### 2. 수시 확인
+- [ ] mcp.so 이슈 [#3741](https://github.com/chatmcp/mcpso/issues/3741) 등재 여부
+- [ ] PulseMCP 자동 수집 여부 (공식 레지스트리 경유)
+
+### 완료된 Phase 1.5 (기록용)
 - [x] README.md 외부 공개용 개편 (영문, AEO 구조화) — 2026-08-24
 - [x] GitHub 공개 저장소 (https://github.com/Wonderfulian/kbv-server, MIT 라이선스) — 2026-08-24
 - [x] **공식 MCP Registry 등재** (`io.github.Wonderfulian/kbv-server`, status: active) — 2026-08-24. 태그 푸시로 자동 게시(GitHub Actions OIDC). PulseMCP는 여기서 자동 수집 예정
 - [x] **디렉토리 3곳 이상 등재** — 공식 Registry + Smithery + Glama 확정 (2026-08-25). 잔여: mcp.so 이슈 [#3741](https://github.com/chatmcp/mcpso/issues/3741) 등재 확인, awesome-mcp-korea PR
-- [ ] REST 엔드포인트 + `/llms.txt` + 랜딩: **코드 초안 작성됨(미커밋)** → 다음 세션에서 `npm run typecheck` → `npm test` → 로컬 확인 → 커밋 → Cloud Run 재배포 → 라이브 검증 4종(/health, /v1 status 실조회, /llms.txt, /)
-
-### 2. 다음 세션 안건 (2026-08-25 지정)
-- [ ] 경쟁 서버 정찰: NTS 기반 툴 5개짜리 MCP 서버 조사 (기능·카피·차별점 비교)
-- [ ] Cloud Run 트래픽 모니터링 확인법 정리 (콘솔에서 요청 수·지연·인스턴스 보는 절차 문서화)
+- [x] REST 엔드포인트 2종 (`GET /v1/business/{brno}/status`, `POST /v1/business/verify`) — 2026-08-26 구현·검증 완료, 커밋됨. **배포는 단계 1과 함께**
+- ~~`/llms.txt`·랜딩~~ — v2 §7에서 범위 제외로 보류 (코드는 `src/landing.ts.shelved`에 보관)
+- 경쟁 서버 정찰·트래픽 실측 — 별도 세션에서 완료 (결과: PHASE2-PLAN-v2.md §0, MONITORING.md)
 
 **등재 과정에서 배운 것**: ① 레지스트리 네임스페이스는 GitHub 계정명 **대소문자까지** 일치 필요 (`io.github.Wonderfulian`) ② server.json의 $schema는 현행 버전(2025-12-11) 사용 ③ PowerShell 5.1에서 커밋 메시지에 큰따옴표 넣으면 인수 깨짐 — 메시지에 따옴표 금지
 
