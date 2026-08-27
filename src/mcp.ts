@@ -10,7 +10,15 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { SOURCE, type StatusResult, type VerifyResult } from './normalize.js';
-import { checkStatus, isServiceError, verifyBusiness, type Deps, type ServiceResult } from './service.js';
+import {
+  checkStatus,
+  checkStatusBatch,
+  isServiceError,
+  verifyBusiness,
+  type BatchResult,
+  type Deps,
+  type ServiceResult,
+} from './service.js';
 
 export type { Deps, ToolOutcome } from './service.js';
 
@@ -31,7 +39,7 @@ type ToolResult = {
   isError?: boolean;
 };
 
-function toToolResult(res: ServiceResult<StatusResult | VerifyResult>): ToolResult {
+function toToolResult(res: ServiceResult<StatusResult | VerifyResult | BatchResult>): ToolResult {
   if (isServiceError(res)) {
     return {
       isError: true,
@@ -45,7 +53,7 @@ function toToolResult(res: ServiceResult<StatusResult | VerifyResult>): ToolResu
 }
 
 export function buildMcpServer(deps: Deps): McpServer {
-  const server = new McpServer({ name: 'korea-business-verify', version: '0.1.0' });
+  const server = new McpServer({ name: 'korea-business-verify', version: '0.2.0' });
 
   server.registerTool(
     'check_korean_business_status',
@@ -63,6 +71,36 @@ export function buildMcpServer(deps: Deps): McpServer {
       outputSchema: statusOutputShape,
     },
     async ({ business_number }) => toToolResult(await checkStatus(deps, business_number)),
+  );
+
+  server.registerTool(
+    'check_korean_business_batch',
+    {
+      title: 'Batch check Korean business status',
+      description:
+        'Check the registration status of up to 100 Korean businesses in a single call by their 10-digit ' +
+        'business registration numbers (사업자등록번호). Returns one status entry per input number (order ' +
+        'preserved) plus a summary count. Use this instead of repeated single checks when screening supplier ' +
+        'or customer lists. Recently checked numbers may be answered from a cache up to 24 hours old ' +
+        '(marked "cache": true). Data source: Korea National Tax Service.',
+      inputSchema: {
+        business_numbers: z
+          .array(z.string())
+          .min(1)
+          .describe('1-100 Korean business registration numbers; hyphens/spaces allowed'),
+      },
+      outputSchema: {
+        results: z.array(z.object(statusOutputShape)),
+        summary: z.object({
+          total: z.number(),
+          active: z.number(),
+          suspended: z.number(),
+          closed: z.number(),
+          not_registered: z.number(),
+        }),
+      },
+    },
+    async ({ business_numbers }) => toToolResult(await checkStatusBatch(deps, business_numbers)),
   );
 
   server.registerTool(

@@ -4,6 +4,7 @@
  *
  *   GET  /v1/business/:brno/status
  *   POST /v1/business/verify
+ *   POST /v1/business/batch
  *
  * HTTP mapping: ok / cache_fallback → 200 (`cache` field tells them apart),
  * invalid input → 400, upstream down with cold cache → 503, unexpected → 500.
@@ -12,7 +13,15 @@
 
 import { Router, type Response } from 'express';
 import { z } from 'zod';
-import { checkStatus, isServiceError, verifyBusiness, type Deps, type ServiceResult } from './service.js';
+import {
+  checkStatus,
+  checkStatusBatch,
+  isServiceError,
+  verifyBusiness,
+  type BatchResult,
+  type Deps,
+  type ServiceResult,
+} from './service.js';
 import type { StatusResult, VerifyResult } from './normalize.js';
 
 const HTTP_STATUS: Record<string, number> = {
@@ -21,7 +30,7 @@ const HTTP_STATUS: Record<string, number> = {
   internal_error: 500,
 };
 
-function send(res: Response, out: ServiceResult<StatusResult | VerifyResult>): void {
+function send(res: Response, out: ServiceResult<StatusResult | VerifyResult | BatchResult>): void {
   if (isServiceError(out)) {
     res.status(HTTP_STATUS[out.outcome] ?? 500).json({ error: out.error, message: out.message });
     return;
@@ -34,6 +43,10 @@ const verifyBodySchema = z.object({
   representative_name: z.string().min(1),
   opening_date: z.string(),
   address: z.string().optional(),
+});
+
+const batchBodySchema = z.object({
+  business_numbers: z.array(z.string()),
 });
 
 export function buildRestRouter(deps: Deps): Router {
@@ -52,6 +65,16 @@ export function buildRestRouter(deps: Deps): Router {
       return;
     }
     send(res, await verifyBusiness(deps, parsed.data, 'rest_verify'));
+  });
+
+  router.post('/v1/business/batch', async (req, res) => {
+    const parsed = batchBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      const detail = parsed.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; ');
+      res.status(400).json({ error: 'invalid_request', message: `Invalid request body — ${detail}` });
+      return;
+    }
+    send(res, await checkStatusBatch(deps, parsed.data.business_numbers, 'rest_batch'));
   });
 
   return router;

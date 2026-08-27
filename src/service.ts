@@ -17,7 +17,7 @@ import {
   type StatusResult,
   type VerifyResult,
 } from './normalize.js';
-import { NtsError, type NtsClient, type NtsStatusItem } from './nts.js';
+import { MAX_BATCH, NtsError, type NtsClient, type NtsStatusItem } from './nts.js';
 
 export type ToolOutcome = 'ok' | 'cache_fallback' | 'invalid_input' | 'upstream_unavailable' | 'internal_error';
 
@@ -48,6 +48,19 @@ export interface VerifyInput {
   representative_name: string;
   opening_date: string;
   address?: string | undefined;
+}
+
+export interface BatchSummary {
+  total: number;
+  active: number;
+  suspended: number;
+  closed: number;
+  not_registered: number;
+}
+
+export interface BatchResult {
+  results: StatusResult[];
+  summary: BatchSummary;
 }
 
 /**
@@ -115,6 +128,98 @@ export async function checkStatus(
       },
     };
   });
+}
+
+/**
+ * Batch status check (PHASE2 stage 1): up to MAX_BATCH numbers in ONE NTS
+ * /status call. Unlike the single-number flow (always fresh, cache only as
+ * outage fallback), the batch flow reuses cached per-number results — cache
+ * hits are excluded from the NTS request to conserve the daily quota, and
+ * are marked `cache: true` with their original checked_at.
+ */
+export async function checkStatusBatch(
+  deps: Deps,
+  rawNumbers: string[],
+  logAs = 'check_korean_business_batch',
+): Promise<ServiceResult<BatchResult>> {
+  const started = Date.now();
+  const done = (outcome: ToolOutcome, value: ServiceResult<BatchResult>): ServiceResult<BatchResult> => {
+    deps.log?.({ tool: logAs, outcome, ms: Date.now() - started });
+    return value;
+  };
+
+  // All validation happens before any network call (PHASE2 stage 1 rule).
+  if (rawNumbers.length === 0) {
+    return done('invalid_input', {
+      outcome: 'invalid_input',
+      error: 'invalid_business_number',
+      message: 'business_numbers must contain at least 1 entry.',
+    });
+  }
+  if (rawNumbers.length > MAX_BATCH) {
+    return done('invalid_input', {
+      outcome: 'invalid_input',
+      error: 'batch_limit_exceeded',
+      message: `business_numbers accepts at most ${MAX_BATCH} entries per call (got ${rawNumbers.length}).`,
+    });
+  }
+  let normalized: string[];
+  try {
+    normalized = rawNumbers.map((raw, i) => {
+      try {
+        return normalizeBusinessNumber(raw);
+      } catch (err) {
+        throw new InvalidInputError(`business_numbers[${i}]: ${(err as Error).message}`);
+      }
+    });
+  } catch (err) {
+    return done('invalid_input', {
+      outcome: 'invalid_input',
+      error: 'invalid_business_number',
+      message: (err as Error).message,
+    });
+  }
+
+  const resultByNumber = new Map<string, StatusResult>();
+  const toFetch: string[] = [];
+  for (const bNo of new Set(normalized)) {
+    const entry = deps.cache.get(statusKey(bNo));
+    if (entry) {
+      // statusKey entries only ever hold StatusResult (verify warms them
+      // with identity_match already stripped).
+      resultByNumber.set(bNo, { ...(entry.result as StatusResult), cache: true, checked_at: entry.fetchedAt });
+    } else {
+      toFetch.push(bNo);
+    }
+  }
+
+  if (toFetch.length > 0) {
+    try {
+      const items = await deps.nts.checkStatus(toFetch);
+      const checkedAt = new Date().toISOString();
+      for (const bNo of toFetch) {
+        const item: NtsStatusItem = items.find((i) => i.b_no === bNo) ?? { b_no: bNo };
+        const result = buildStatusResult(bNo, item, { cache: false, checkedAt });
+        deps.cache.set(statusKey(bNo), { result, fetchedAt: checkedAt });
+        resultByNumber.set(bNo, result);
+      }
+    } catch (err) {
+      if (err instanceof NtsError) {
+        return done('upstream_unavailable', {
+          outcome: 'upstream_unavailable',
+          error: 'upstream_unavailable',
+          message: UPSTREAM_UNAVAILABLE_MESSAGE,
+        });
+      }
+      return done('internal_error', { outcome: 'internal_error', error: 'internal_error', message: 'Unexpected server error.' });
+    }
+  }
+
+  // One entry per input element, order preserved; duplicates share a result.
+  const results = normalized.map((bNo) => resultByNumber.get(bNo) as StatusResult);
+  const summary: BatchSummary = { total: results.length, active: 0, suspended: 0, closed: 0, not_registered: 0 };
+  for (const r of results) summary[r.status] += 1;
+  return done('ok', { outcome: 'ok', result: { results, summary } });
 }
 
 export async function verifyBusiness(

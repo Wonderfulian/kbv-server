@@ -80,13 +80,13 @@ async function call(client: Client, name: string, args: Record<string, unknown>)
 }
 
 describe('tools/list', () => {
-  it('exposes exactly the two Phase 1 tools with English descriptions', async () => {
+  it('exposes exactly the three tools with English descriptions', async () => {
     const { nts } = makeFakeNts();
     const client = await connect({ nts, cache: createCache() });
 
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name).sort();
-    expect(names).toEqual(['check_korean_business_status', 'verify_korean_business']);
+    expect(names).toEqual(['check_korean_business_batch', 'check_korean_business_status', 'verify_korean_business']);
     for (const tool of tools) {
       expect(tool.description).toMatch(/Korean business/);
     }

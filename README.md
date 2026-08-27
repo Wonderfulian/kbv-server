@@ -19,7 +19,8 @@ Built for AI agents and developers doing KYB / due-diligence on Korean companies
 | Health check | `GET https://kbv-server-f7vfitmlkq-du.a.run.app/health` → `{"ok":true}` |
 | Authentication | None required |
 | Price | **Free** (pilot) — pay-per-call planned, see [Pricing](#pricing) |
-| Tools | `check_korean_business_status`, `verify_korean_business` |
+| Tools | `check_korean_business_status`, `check_korean_business_batch`, `verify_korean_business` |
+| REST API | `GET /v1/business/{number}/status` · `POST /v1/business/verify` · `POST /v1/business/batch` — see [REST API](#rest-api) |
 | Data source | Korea National Tax Service (국세청), official open-data API — queried live per request |
 | Data license | Korean government open data, **no usage restrictions** (이용허락범위 제한 없음) |
 | Privacy | Query contents are never logged — see [Privacy](#privacy) |
@@ -100,6 +101,32 @@ Check the registration status of a Korean business by its 10-digit business regi
 
 A number that is well-formed but not registered with the NTS returns `"status": "not_registered"` (not an error).
 
+### `check_korean_business_batch`
+
+Check **up to 100 businesses in a single call** — for screening supplier or customer lists without 100 round-trips.
+
+**Input:**
+
+```json
+{ "business_numbers": ["124-81-00998", "220-81-62517"] }
+```
+
+**Output** — one entry per input number (order preserved, same schema as above) plus a summary:
+
+```json
+{
+  "results": [
+    { "business_number": "1248100998", "status": "active", "...": "..." },
+    { "business_number": "2208162517", "status": "active", "...": "..." }
+  ],
+  "summary": { "total": 2, "active": 2, "suspended": 0, "closed": 0, "not_registered": 0 }
+}
+```
+
+- The whole batch is answered with **one** upstream NTS query.
+- Numbers checked within the last 24 hours may be served from cache (marked `"cache": true` with their original `checked_at`) and are excluded from the upstream query.
+- More than 100 numbers, or any malformed number, is rejected **before** anything is queried.
+
 ### `verify_korean_business`
 
 Verify that a business registration number matches the provided representative name and opening date (KYB identity check), and get the current status in the same call.
@@ -137,13 +164,36 @@ Verify that a business registration number matches the provided representative n
 
 `identity_match` is `true` only when the NTS confirms that the number, representative name, and opening date all match its records.
 
+## REST API
+
+The same three operations are available as plain HTTP endpoints — same JSON schemas as the MCP tools, no auth:
+
+```bash
+# Registration status (hyphens in the number are fine)
+curl https://kbv-server-f7vfitmlkq-du.a.run.app/v1/business/124-81-00998/status
+
+# KYB identity check
+curl -X POST https://kbv-server-f7vfitmlkq-du.a.run.app/v1/business/verify \
+  -H "Content-Type: application/json" \
+  -d '{"business_number":"124-81-00998","representative_name":"홍길동","opening_date":"1969-01-13"}'
+
+# Batch status check (up to 100 numbers)
+curl -X POST https://kbv-server-f7vfitmlkq-du.a.run.app/v1/business/batch \
+  -H "Content-Type: application/json" \
+  -d '{"business_numbers":["124-81-00998","220-81-62517"]}'
+```
+
+HTTP status codes: `200` success (including cache-served results), `400` invalid input, `503` NTS temporarily unavailable with no cached result.
+
 ## Errors
 
-Errors are returned as MCP tool errors with a machine-readable JSON body:
+Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machine-readable JSON body:
 
 | `error` | Meaning |
 |---|---|
 | `invalid_business_number` | Input is not a 10-digit number, or the date is not `YYYY-MM-DD`. Nothing was queried. |
+| `batch_limit_exceeded` | More than 100 numbers in one batch call. Nothing was queried. |
+| `invalid_request` | (REST only) The request body does not match the expected shape. |
 | `upstream_unavailable` | The NTS API is down or over quota and no cached result exists. Retry later. |
 
 ## Data source and license
@@ -173,7 +223,9 @@ Errors are returned as MCP tool errors with a machine-readable JSON body:
 
 **Can I verify a Korean company's identity before a transaction (KYB)?** Yes — call `verify_korean_business` with the number, representative name, and opening date; `identity_match: true` means the NTS confirms all three match.
 
-**Do I need an API key?** No. Connect to the MCP URL and call the tools.
+**Can I screen a whole supplier list at once?** Yes — `check_korean_business_batch` (or `POST /v1/business/batch`) takes up to 100 numbers per call and returns per-number results plus a summary.
+
+**Do I need an API key?** No. Connect to the MCP URL and call the tools, or call the REST endpoints directly.
 
 ## Self-hosting / development
 
