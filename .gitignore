@@ -23,3 +23,8 @@ Thumbs.db
 
 # shelved code kept out of the build (see PROGRESS.md)
 *.shelved
+
+# internal strategy & measurement docs — local only, not for the public repo
+PROGRESS.md
+MONITORING.md
+PHASE2-PLAN*.md
