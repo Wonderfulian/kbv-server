@@ -4,7 +4,7 @@
  */
 
 import dotenv from 'dotenv';
-import { buildApp } from './app.js';
+import { buildApp, type X402Options } from './app.js';
 import { createCache } from './cache.js';
 import { createNtsClient } from './nts.js';
 import type { Deps } from './service.js';
@@ -29,7 +29,20 @@ const deps: Deps = {
   log: (info) => console.log(JSON.stringify({ event: 'tool_call', ...info })),
 };
 
-export const app = buildApp(deps);
+// Payments are OFF unless a receiving address is configured (address only —
+// private keys and seed phrases never touch this server).
+const payTo = process.env.X402_PAY_TO_ADDRESS;
+const x402: X402Options | undefined = payTo
+  ? {
+      payTo,
+      facilitatorUrl: process.env.X402_FACILITATOR_URL ?? 'https://x402.org/facilitator',
+      network: process.env.X402_NETWORK ?? 'eip155:84532', // Base Sepolia testnet
+      dailyFreeTier: Number(process.env.FREE_TIER_DAILY ?? 10),
+    }
+  : undefined;
+console.log(JSON.stringify({ event: 'x402_config', enabled: Boolean(x402), network: x402?.network ?? null }));
+
+export const app = buildApp(deps, x402);
 
 if (!process.env.VITEST) {
   const port = Number(process.env.PORT ?? 8080);

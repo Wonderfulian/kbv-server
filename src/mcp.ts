@@ -22,6 +22,24 @@ import {
 
 export type { Deps, ToolOutcome } from './service.js';
 
+/**
+ * Per-request context. When `tryConsume` is present the free-tier quota is
+ * enforced on MCP tool calls too (same per-IP counter as REST), so MCP
+ * cannot be used to bypass the paid REST endpoints. Over-quota MCP calls get
+ * a plain error pointing to the paid REST API instead of an HTTP 402.
+ */
+export interface McpRequestContext {
+  tryConsume?: (units: number) => boolean;
+}
+
+const FREE_TIER_MESSAGE =
+  'Daily free tier exceeded for this IP (10 lookups per day, one per business number; resets 00:00 UTC). ' +
+  'Paid usage is available via the x402-enabled REST API on this host: ' +
+  'GET /v1/business/{number}/status ($0.02), POST /v1/business/verify ($0.05), ' +
+  'POST /v1/business/batch ($0.02 per number, up to 100). ' +
+  'Payments are agent-payable via the x402 protocol (USDC on Base); see the README at ' +
+  'https://github.com/Wonderfulian/kbv-server for details.';
+
 const statusOutputShape = {
   business_number: z.string(),
   status: z.enum(['active', 'suspended', 'closed', 'not_registered']),
@@ -39,6 +57,13 @@ type ToolResult = {
   isError?: boolean;
 };
 
+function errorResult(error: string, message: string): ToolResult {
+  return {
+    isError: true,
+    content: [{ type: 'text', text: JSON.stringify({ error, message }, null, 2) }],
+  };
+}
+
 function toToolResult(res: ServiceResult<StatusResult | VerifyResult | BatchResult>): ToolResult {
   if (isServiceError(res)) {
     return {
@@ -52,8 +77,18 @@ function toToolResult(res: ServiceResult<StatusResult | VerifyResult | BatchResu
   };
 }
 
-export function buildMcpServer(deps: Deps): McpServer {
+export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
   const server = new McpServer({ name: 'korea-business-verify', version: '0.2.0' });
+
+  /**
+   * Returns an error result when the free tier is exhausted, null otherwise.
+   * `units` mirrors pricing (status/verify = 1, batch = one per number).
+   */
+  function quotaGate(tool: string, units: number): ToolResult | null {
+    if (units <= 0 || !ctx?.tryConsume || ctx.tryConsume(units)) return null;
+    deps.log?.({ tool, outcome: 'free_tier_exceeded', ms: 0 });
+    return errorResult('free_tier_exceeded', FREE_TIER_MESSAGE);
+  }
 
   server.registerTool(
     'check_korean_business_status',
@@ -70,7 +105,11 @@ export function buildMcpServer(deps: Deps): McpServer {
       },
       outputSchema: statusOutputShape,
     },
-    async ({ business_number }) => toToolResult(await checkStatus(deps, business_number)),
+    async ({ business_number }) => {
+      const gate = quotaGate('check_korean_business_status', 1);
+      if (gate) return gate;
+      return toToolResult(await checkStatus(deps, business_number));
+    },
   );
 
   server.registerTool(
@@ -100,7 +139,13 @@ export function buildMcpServer(deps: Deps): McpServer {
         }),
       },
     },
-    async ({ business_numbers }) => toToolResult(await checkStatusBatch(deps, business_numbers)),
+    async ({ business_numbers }) => {
+      // Invalid sizes consume nothing — the service rejects them before any query.
+      const units = business_numbers.length <= 100 ? business_numbers.length : 0;
+      const gate = quotaGate('check_korean_business_batch', units);
+      if (gate) return gate;
+      return toToolResult(await checkStatusBatch(deps, business_numbers));
+    },
   );
 
   server.registerTool(
@@ -124,8 +169,11 @@ export function buildMcpServer(deps: Deps): McpServer {
       },
       outputSchema: { ...statusOutputShape, identity_match: z.boolean() },
     },
-    async ({ business_number, representative_name, opening_date, address }) =>
-      toToolResult(await verifyBusiness(deps, { business_number, representative_name, opening_date, address })),
+    async ({ business_number, representative_name, opening_date, address }) => {
+      const gate = quotaGate('verify_korean_business', 1);
+      if (gate) return gate;
+      return toToolResult(await verifyBusiness(deps, { business_number, representative_name, opening_date, address }));
+    },
   );
 
   return server;

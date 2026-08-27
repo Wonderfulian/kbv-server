@@ -19,7 +19,13 @@ import {
 } from './normalize.js';
 import { MAX_BATCH, NtsError, type NtsClient, type NtsStatusItem } from './nts.js';
 
-export type ToolOutcome = 'ok' | 'cache_fallback' | 'invalid_input' | 'upstream_unavailable' | 'internal_error';
+export type ToolOutcome =
+  | 'ok'
+  | 'cache_fallback'
+  | 'invalid_input'
+  | 'upstream_unavailable'
+  | 'internal_error'
+  | 'free_tier_exceeded';
 
 export interface Deps {
   nts: NtsClient;

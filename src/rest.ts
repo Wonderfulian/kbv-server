@@ -11,6 +11,7 @@
  * Error bodies use the same `{ error, message }` shape as the MCP tools.
  */
 
+import { setSettlementOverrides } from '@x402/express';
 import { Router, type Response } from 'express';
 import { z } from 'zod';
 import {
@@ -29,6 +30,9 @@ const HTTP_STATUS: Record<string, number> = {
   upstream_unavailable: 503,
   internal_error: 500,
 };
+
+/** $0.02 per looked-up number, in USDC atomic units (6 decimals). */
+export const PRICE_PER_LOOKUP_ATOMIC = 20_000;
 
 function send(res: Response, out: ServiceResult<StatusResult | VerifyResult | BatchResult>): void {
   if (isServiceError(out)) {
@@ -74,7 +78,14 @@ export function buildRestRouter(deps: Deps): Router {
       res.status(400).json({ error: 'invalid_request', message: `Invalid request body — ${detail}` });
       return;
     }
-    send(res, await checkStatusBatch(deps, parsed.data.business_numbers, 'rest_batch'));
+    const out = await checkStatusBatch(deps, parsed.data.business_numbers, 'rest_batch');
+    if (res.locals.paid === true) {
+      // "upto" scheme: the client authorized the batch maximum; settle only
+      // the actual usage — $0.02 per number, or nothing if the call failed.
+      const total = isServiceError(out) ? 0 : out.result.summary.total;
+      setSettlementOverrides(res, { amount: String(total * PRICE_PER_LOOKUP_ATOMIC) });
+    }
+    send(res, out);
   });
 
   return router;
