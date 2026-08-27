@@ -3,6 +3,8 @@
  * App wiring lives in app.ts so tests can inject mock deps.
  */
 
+import { createFacilitatorConfig } from '@coinbase/x402';
+import { HTTPFacilitatorClient } from '@x402/core/server';
 import dotenv from 'dotenv';
 import { buildApp, type X402Options } from './app.js';
 import { createCache } from './cache.js';
@@ -32,15 +34,27 @@ const deps: Deps = {
 // Payments are OFF unless a receiving address is configured (address only —
 // private keys and seed phrases never touch this server).
 const payTo = process.env.X402_PAY_TO_ADDRESS;
+// CDP keys present -> authenticated Coinbase facilitator (mainnet path); the
+// keys are mounted from Secret Manager and are read here only, never logged.
+const cdpFacilitator =
+  process.env.CDP_API_KEY_ID && process.env.CDP_API_KEY_SECRET ? createFacilitatorConfig() : undefined;
 const x402: X402Options | undefined = payTo
   ? {
       payTo,
-      facilitatorUrl: process.env.X402_FACILITATOR_URL ?? 'https://x402.org/facilitator',
+      facilitatorUrl: cdpFacilitator?.url ?? process.env.X402_FACILITATOR_URL ?? 'https://x402.org/facilitator',
       network: process.env.X402_NETWORK ?? 'eip155:84532', // Base Sepolia testnet
       dailyFreeTier: Number(process.env.FREE_TIER_DAILY ?? 10),
+      facilitatorClient: cdpFacilitator ? new HTTPFacilitatorClient(cdpFacilitator) : undefined,
     }
   : undefined;
-console.log(JSON.stringify({ event: 'x402_config', enabled: Boolean(x402), network: x402?.network ?? null }));
+console.log(
+  JSON.stringify({
+    event: 'x402_config',
+    enabled: Boolean(x402),
+    network: x402?.network ?? null,
+    facilitator: x402 ? (cdpFacilitator ? 'cdp' : x402.facilitatorUrl) : null,
+  }),
+);
 
 export const app = buildApp(deps, x402);
 
