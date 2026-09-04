@@ -77,6 +77,9 @@ function printSettle(label, res) {
   } catch {
     console.log(`settle (${label}): no payment response header`);
   }
+  // Bazaar cataloging verdict from the facilitator (success | processing | rejected)
+  const ext = res.headers.get('extension-responses');
+  if (ext) console.log(`extension-responses (${label}):`, ext);
 }
 
 /** Paid call with retries — the free testnet facilitator's relayer flakes occasionally. */

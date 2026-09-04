@@ -26,6 +26,7 @@ Korea Business Verify (KBV) is a hosted MCP server — 10 free calls/day, then p
 
 Tools:
 - check_korean_business_status — registration status + tax type by business number
+- check_korean_business_batch — up to 100 numbers in one call, order preserved, with summary
 - verify_korean_business — KYB identity match (number + representative name + opening date, optional address) plus current status
 
 Example prompts:
@@ -109,6 +110,7 @@ business, verification, kyb, finance, government, korea, api, due-diligence
 ### Tools
 
 - `check_korean_business_status` — registration status (active / suspended / closed / not_registered) + tax type by business number
+- `check_korean_business_batch` — up to 100 numbers in one call, order preserved, with summary
 - `verify_korean_business` — KYB identity match (number + representative name + opening date, optional address) plus current status
 
 ### Example prompts

@@ -18,7 +18,11 @@ import { HTTPFacilitatorClient, type FacilitatorClient } from '@x402/core/server
 import { ExactEvmScheme } from '@x402/evm/exact/server';
 import { UptoEvmScheme } from '@x402/evm/upto/server';
 import { paymentMiddleware, x402ResourceServer, type Network } from '@x402/express';
-import { declareEip2612GasSponsoringExtension } from '@x402/extensions';
+import {
+  bazaarResourceServerExtension,
+  declareDiscoveryExtension,
+  declareEip2612GasSponsoringExtension,
+} from '@x402/extensions';
 import express from 'express';
 import { buildMcpServer } from './mcp.js';
 import { createQuota, type Quota } from './quota.js';
@@ -41,6 +45,24 @@ export interface X402Options {
 }
 
 const STATUS_PATH = /^\/v1\/business\/[^/]+\/status$/;
+
+/** Bazaar catalog metadata shared by the three paid routes (ASCII, per spec limits). */
+const BAZAAR_SERVICE = {
+  serviceName: 'Korea Business Verify (KBV)', // <= 32 ASCII chars
+  tags: ['korea', 'business', 'kyb', 'verification', 'nts'], // <= 5 tags
+};
+
+/** Real response shape used in Bazaar discovery examples (Samsung Electronics, live lookup). */
+const STATUS_EXAMPLE = {
+  business_number: '1248100998',
+  status: 'active',
+  status_code_raw: '01',
+  tax_type: 'general',
+  closed_date: null,
+  checked_at: '2026-09-03T00:56:04.239Z',
+  source: 'Korea National Tax Service (NTS)',
+  cache: false,
+};
 
 /**
  * Lookup units a request will consume from the free tier; null = unmetered
@@ -80,11 +102,51 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
         accepts: [{ scheme: 'exact', price: '$0.02', network, payTo }],
         description: 'Korean business registration status + tax type by business number (NTS, real-time)',
         mimeType: 'application/json',
+        ...BAZAAR_SERVICE,
+        extensions: {
+          ...declareDiscoveryExtension({
+            pathParams: { brno: '124-81-00998' },
+            pathParamsSchema: {
+              properties: {
+                brno: {
+                  type: 'string',
+                  description: '10-digit Korean business registration number; hyphens/spaces allowed',
+                },
+              },
+              required: ['brno'],
+            },
+            output: { example: STATUS_EXAMPLE },
+          }),
+        },
       },
       'POST /v1/business/verify': {
         accepts: [{ scheme: 'exact', price: '$0.05', network, payTo }],
         description: 'Korean business KYB identity check: number + representative name + opening date',
         mimeType: 'application/json',
+        ...BAZAAR_SERVICE,
+        extensions: {
+          ...declareDiscoveryExtension({
+            bodyType: 'json',
+            input: {
+              business_number: '124-81-00998',
+              representative_name: '홍길동',
+              opening_date: '2015-03-02',
+            },
+            inputSchema: {
+              properties: {
+                business_number: {
+                  type: 'string',
+                  description: '10-digit Korean business registration number; hyphens/spaces allowed',
+                },
+                representative_name: { type: 'string', description: 'Representative (CEO) name as registered' },
+                opening_date: { type: 'string', description: 'Business opening date, YYYY-MM-DD' },
+                address: { type: 'string', description: 'Optional business address to include in the match' },
+              },
+              required: ['business_number', 'representative_name', 'opening_date'],
+            },
+            output: { example: { ...STATUS_EXAMPLE, identity_match: false } },
+          }),
+        },
       },
       'POST /v1/business/batch': {
         // "upto": client authorizes the $2.00 ceiling; the handler settles
@@ -92,13 +154,44 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
         accepts: [{ scheme: 'upto', price: '$2.00', network, payTo }],
         description: 'Batch Korean business status check, $0.02 per number, up to 100 per call',
         mimeType: 'application/json',
-        extensions: { ...declareEip2612GasSponsoringExtension() },
+        ...BAZAAR_SERVICE,
+        extensions: {
+          ...declareEip2612GasSponsoringExtension(),
+          ...declareDiscoveryExtension({
+            bodyType: 'json',
+            input: { business_numbers: ['124-81-00998', '123-45-67890'] },
+            inputSchema: {
+              properties: {
+                business_numbers: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  minItems: 1,
+                  maxItems: 100,
+                  description: '1-100 Korean business registration numbers; hyphens/spaces allowed',
+                },
+              },
+              required: ['business_numbers'],
+            },
+            output: {
+              example: {
+                results: [
+                  STATUS_EXAMPLE,
+                  { ...STATUS_EXAMPLE, business_number: '1234567890', status: 'not_registered', status_code_raw: '' },
+                ],
+                summary: { total: 2, active: 1, suspended: 0, closed: 0, not_registered: 1 },
+              },
+            },
+          }),
+        },
       },
     };
     const facilitatorClient = x402.facilitatorClient ?? new HTTPFacilitatorClient({ url: x402.facilitatorUrl });
     const resourceServer = new x402ResourceServer(facilitatorClient)
       .register(network, new ExactEvmScheme())
-      .register(network, new UptoEvmScheme());
+      .register(network, new UptoEvmScheme())
+      // Bazaar discovery: enriches the route declarations above so the CDP
+      // facilitator can index the endpoints (docs.cdp.coinbase.com/x402/seller/get-discovered)
+      .registerExtension(bazaarResourceServerExtension);
     const paid = paymentMiddleware(routes, resourceServer);
 
     app.use((req, res, next) => {
