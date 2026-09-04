@@ -1,6 +1,8 @@
 # Korea Business Verify (KBV) — MCP Server
 
-**KBV is a hosted MCP server that verifies Korean businesses in real time — free during its pilot phase.** Give it a 10-digit Korean business registration number (사업자등록번호) and it returns the registration status (active / suspended / closed), tax type, and — optionally — whether the number matches a representative name and opening date. Data comes live from the Korea National Tax Service (NTS) and is returned as clean, English-normalized JSON.
+[![M8ven Score](https://m8ven.ai/badge/mcp/wonderfulian-kbv-server-nnj5uy)](https://m8ven.ai/mcp/wonderfulian-kbv-server-nnj5uy)
+
+**KBV is a hosted MCP server that verifies Korean businesses in real time — 10 free calls/day, then pay-per-call (x402).** Give it a 10-digit Korean business registration number (사업자등록번호) and it returns the registration status (active / suspended / closed), tax type, and — optionally — whether the number matches a representative name and opening date. Data comes live from the Korea National Tax Service (NTS) and is returned as clean, English-normalized JSON.
 
 No account, no API key, no installation — connect any MCP-capable agent to one URL:
 
@@ -18,7 +20,7 @@ Built for AI agents and developers doing KYB / due-diligence on Korean companies
 | Transport | MCP Streamable HTTP (`POST`) |
 | Health check | `GET https://kbv-server-f7vfitmlkq-du.a.run.app/health` → `{"ok":true}` |
 | Authentication | None required |
-| Price | **Free** (pilot) — pay-per-call planned, see [Pricing](#pricing) |
+| Price | **10 free calls/day** per IP, then pay-per-call via x402 ($0.02–$0.05) — see [Pricing](#pricing) |
 | Tools | `check_korean_business_status`, `check_korean_business_batch`, `verify_korean_business` |
 | REST API | `GET /v1/business/{number}/status` · `POST /v1/business/verify` · `POST /v1/business/batch` — see [REST API](#rest-api) |
 | Data source | Korea National Tax Service (국세청), official open-data API — queried live per request |
@@ -211,9 +213,13 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 
 ## Pricing
 
-- **Currently free** while KBV is in its pilot phase. No account or key is needed.
-- Pay-per-call pricing (in the ~$0.02–$0.05 per call range, agent-payable via [x402](https://www.x402.org/)) is planned for a later phase; the free tier for light usage is expected to remain.
-- Fair use: the upstream NTS quota is shared. Heavy automated traffic may be rate-limited before paid tiers launch.
+- **Free tier: 10 lookups per IP per day** (a batch call counts one per number), resetting at 00:00 UTC. No account or key is needed. MCP and REST share the same counter.
+- Beyond the free tier, the REST endpoints are **pay-per-call via the [x402](https://www.x402.org/) protocol** (USDC on Base mainnet, agent-payable — no signup):
+  - `GET /v1/business/{number}/status` — **$0.02**
+  - `POST /v1/business/verify` — **$0.05**
+  - `POST /v1/business/batch` — **$0.02 per number** (authorize up to $2.00, settled at actual usage)
+- Over-quota MCP tool calls return a `free_tier_exceeded` error that points to the paid REST endpoints above.
+- Fair use: the upstream NTS quota is shared; the free tier keeps light usage free while heavy traffic moves to paid calls.
 
 ## FAQ
 

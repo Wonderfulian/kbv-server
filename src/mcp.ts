@@ -40,6 +40,19 @@ const FREE_TIER_MESSAGE =
   'Payments are agent-payable via the x402 protocol (USDC on Base); see the README at ' +
   'https://github.com/Wonderfulian/kbv-server for details.';
 
+/**
+ * All three tools are pure lookups against the live NTS registry: they modify
+ * nothing (readOnly, non-destructive), repeating a call adds no effect beyond
+ * the first (idempotent — the free-tier meter is billing bookkeeping, not a
+ * world effect), and they talk to an external open-world system (NTS API).
+ */
+const LOOKUP_TOOL_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true,
+} as const;
+
 const statusOutputShape = {
   business_number: z.string(),
   status: z.enum(['active', 'suspended', 'closed', 'not_registered']),
@@ -78,7 +91,7 @@ function toToolResult(res: ServiceResult<StatusResult | VerifyResult | BatchResu
 }
 
 export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
-  const server = new McpServer({ name: 'korea-business-verify', version: '0.2.0' });
+  const server = new McpServer({ name: 'korea-business-verify', version: '0.2.1' });
 
   /**
    * Returns an error result when the free tier is exhausted, null otherwise.
@@ -98,6 +111,7 @@ export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
         'Check the registration status of a Korean business by its 10-digit business registration number ' +
         '(사업자등록번호). Returns whether the business is active, suspended, or closed, plus tax type. ' +
         'Data source: Korea National Tax Service, real-time.',
+      annotations: LOOKUP_TOOL_ANNOTATIONS,
       inputSchema: {
         business_number: z
           .string()
@@ -122,6 +136,7 @@ export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
         'preserved) plus a summary count. Use this instead of repeated single checks when screening supplier ' +
         'or customer lists. Recently checked numbers may be answered from a cache up to 24 hours old ' +
         '(marked "cache": true). Data source: Korea National Tax Service.',
+      annotations: LOOKUP_TOOL_ANNOTATIONS,
       inputSchema: {
         business_numbers: z
           .array(z.string())
@@ -156,6 +171,7 @@ export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
         'Verify that a Korean business registration number matches the provided representative name and ' +
         'opening date. Use for KYB / due-diligence before transacting with a Korean company. ' +
         'Returns match result plus current status.',
+      annotations: LOOKUP_TOOL_ANNOTATIONS,
       inputSchema: {
         business_number: z
           .string()

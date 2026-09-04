@@ -1,6 +1,6 @@
 # KBV 디렉토리 제출 키트
 
-> 마지막 업데이트: 2026-08-25
+> 마지막 업데이트: 2026-09-04 (가격 문구: "free during pilot" → "10 free calls/day, then pay-per-call (x402)")
 > MCP 디렉토리 등록에 쓰는 공통 자료 모음입니다. 영문 카피는 아래 블록을 그대로 복사해 쓰세요.
 
 ## 공통 제출 자료 (영문)
@@ -10,7 +10,7 @@
 **One-liner** (공식 레지스트리 100자 제한 대응):
 
 ```
-Real-time Korean business verification via the National Tax Service (NTS). Free during pilot.
+Real-time Korean business verification via NTS. 10 free calls/day, then pay-per-call (x402).
 ```
 
 **Short blurb** (~160자):
@@ -22,7 +22,7 @@ Verify any Korean company by its 10-digit business registration number: active/c
 **Long description**:
 
 ```
-Korea Business Verify (KBV) is a hosted MCP server — free during its pilot phase — that verifies Korean businesses in real time. Give it a 10-digit Korean business registration number (사업자등록번호) and it returns the registration status (active / suspended / closed), tax type, and — optionally — whether the number matches a representative name and opening date (KYB identity check). Data comes live from the Korea National Tax Service (NTS) official open-data API and is returned as clean, English-normalized JSON. No account, no API key, no installation — connect any MCP-capable agent to one URL.
+Korea Business Verify (KBV) is a hosted MCP server — 10 free calls/day, then pay-per-call via x402 — that verifies Korean businesses in real time. Give it a 10-digit Korean business registration number (사업자등록번호) and it returns the registration status (active / suspended / closed), tax type, and — optionally — whether the number matches a representative name and opening date (KYB identity check). Data comes live from the Korea National Tax Service (NTS) official open-data API and is returned as clean, English-normalized JSON. No account, no API key, no installation — connect any MCP-capable agent to one URL.
 
 Tools:
 - check_korean_business_status — registration status + tax type by business number
@@ -32,7 +32,7 @@ Example prompts:
 - "Check the status of Korean business 124-81-00998."
 - "Verify that Korean business 214-87-12345 belongs to 홍길동, opened 2015-03-02."
 
-Privacy: query contents (business numbers, names) are never logged. Data license: Korean government open data, no usage restrictions. Pricing: free during the pilot; pay-per-call pricing is planned.
+Privacy: query contents (business numbers, names) are never logged. Data license: Korean government open data, no usage restrictions. Pricing: 10 free calls/day per IP; beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
 ```
 
 **Tags / categories**:
@@ -104,7 +104,7 @@ business, verification, kyb, finance, government, korea, api, due-diligence
 **Transport:** Streamable HTTP
 **Authentication:** none — public, no API key required
 
-**Description:** Verify any Korean company by its 10-digit business registration number (사업자등록번호): active/closed status, tax type, and KYB identity match. Data comes live from the Korea National Tax Service (NTS) official open-data API and is returned as clean, English-normalized JSON. No account, no API key, no installation — free during the pilot phase.
+**Description:** Verify any Korean company by its 10-digit business registration number (사업자등록번호): active/closed status, tax type, and KYB identity match. Data comes live from the Korea National Tax Service (NTS) official open-data API and is returned as clean, English-normalized JSON. No account, no API key, no installation — 10 free calls/day, then pay-per-call via x402.
 
 ### Tools
 
@@ -138,7 +138,7 @@ curl -s -X POST https://kbv-server-f7vfitmlkq-du.a.run.app/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
 
-Privacy: query contents (business numbers, names) are never logged. Data license: Korean government open data, no usage restrictions. Pricing: free during the pilot; pay-per-call pricing is planned.
+Privacy: query contents (business numbers, names) are never logged. Data license: Korean government open data, no usage restrictions. Pricing: 10 free calls/day per IP; beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
 
 Please list on https://mcp.so as a remote Streamable HTTP server.
 ````
@@ -150,7 +150,7 @@ Please list on https://mcp.so as a remote Streamable HTTP server.
 1. 로그인된 브라우저로 https://github.com/darjeeling/awesome-mcp-korea/edit/main/README.md 열기 → "Fork this repository" 안내가 나오면 수락 (자동 포크)
 2. `## 📊 Public Data` 섹션을 찾아 아래 한 줄을 목록에 추가:
    ```
-   **[Wonderfulian/kbv-server](https://github.com/Wonderfulian/kbv-server)** – 국세청 API 기반 사업자등록 상태조회·진위확인 원격 MCP 서버. 설치·API키 불필요, URL 하나로 연결. (Korean business verification MCP server via NTS — free during pilot)
+   **[Wonderfulian/kbv-server](https://github.com/Wonderfulian/kbv-server)** – 국세청 API 기반 사업자등록 상태조회·진위확인 원격 MCP 서버. 설치·API키 불필요, URL 하나로 연결. (Korean business verification MCP server via NTS — 10 free calls/day, then x402 pay-per-call)
    ```
 3. **Commit changes** → **Create pull request** (제목 예: `Add Korea Business Verify (KBV)`)
 - [ ] PR 생성됨  - [ ] 병합됨

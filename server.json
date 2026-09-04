@@ -2,12 +2,12 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Wonderfulian/kbv-server",
   "title": "Korea Business Verify (KBV)",
-  "description": "Real-time Korean business verification via the National Tax Service (NTS). Free during pilot.",
+  "description": "Real-time Korean business verification via NTS. 10 free calls/day, then pay-per-call (x402).",
   "repository": {
     "url": "https://github.com/Wonderfulian/kbv-server",
     "source": "github"
   },
-  "version": "0.2.0",
+  "version": "0.2.1",
   "remotes": [
     {
       "type": "streamable-http",
