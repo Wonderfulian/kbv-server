@@ -78,7 +78,7 @@ business, verification, kyb, finance, government, korea, api, due-diligence
 2. https://smithery.ai/new 접속 → **URL 방식** 선택 → MCP URL `https://kbv-server-f7vfitmlkq-du.a.run.app/mcp` 붙여넣기
 3. 네임스페이스/이름: `@wonderfulian/kbv-server` → 게시. Smithery가 서버를 자동 스캔해 툴 목록을 채웁니다(무인증 공개 서버라 통과 예상)
 4. 대시보드에서 설명(위 Short blurb)·아이콘 다듬기
-- [x] **게시됨** (2026-08-25, `@wonderfulian` 네임스페이스 — 자동 스캔이 툴 2개 정상 인식)
+- [x] **게시됨** (2026-08-25 — 자동 스캔이 툴 2개 정상 인식). **등재명 정정(2026-09-05 확인): `creativeyoungcho/kbv`** (계정 기본 네임스페이스로 게시됨; `@wonderfulian/kbv-server` 아님). 참고: 설명 필드 비어 있음 + batch 툴 미스캔 — 대시보드에서 채우고 재스캔 권장
 
 ### 5. mcp.so — 🧑 사람 ~5분 (웹 폼은 유료 전환 → GitHub 이슈로 무료 제출)
 
@@ -150,9 +150,9 @@ Please list on https://mcp.so as a remote Streamable HTTP server.
 ### 6. awesome-mcp-korea — 🧑 사람 ~5분 (GitHub 웹 에디터가 포크+PR 자동 생성)
 
 1. 로그인된 브라우저로 https://github.com/darjeeling/awesome-mcp-korea/edit/main/README.md 열기 → "Fork this repository" 안내가 나오면 수락 (자동 포크)
-2. `## 📊 Public Data` 섹션을 찾아 아래 한 줄을 목록에 추가:
+2. `### 📊 Public Data` 섹션(177행 부근)에서 `data-go-mcp-servers` 항목 **다음 줄**(알파벳 순)에 아래 한 줄 추가 — 기존 항목들과 같은 형식(레포명 굵게 + `–` + 한국어 설명):
    ```
-   **[Wonderfulian/kbv-server](https://github.com/Wonderfulian/kbv-server)** – 국세청 API 기반 사업자등록 상태조회·진위확인 원격 MCP 서버. 설치·API키 불필요, URL 하나로 연결. (Korean business verification MCP server via NTS — 10 free calls/day, then x402 pay-per-call)
+   **[kbv-server](https://github.com/Wonderfulian/kbv-server)** – 국세청 API 기반 사업자등록 상태조회·진위확인(KYB) 원격 MCP 서버입니다. 설치·API 키 없이 URL 하나로 연결하며, 하루 10회 무료 후 x402 종량 과금입니다.
    ```
 3. **Commit changes** → **Create pull request** (제목 예: `Add Korea Business Verify (KBV)`)
 - [ ] PR 생성됨  - [ ] 병합됨

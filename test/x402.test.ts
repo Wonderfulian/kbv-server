@@ -112,11 +112,21 @@ describe('free tier + x402 gating', () => {
     await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
   });
 
-  function getStatus(ip?: string): Promise<Response> {
-    return fetch(`${baseUrl}/v1/business/${A}/status`, {
+  /** Free-tier request by default (?free=1) — pass free: false for the unpaid default path. */
+  function getStatus(ip?: string, { free = true }: { free?: boolean } = {}): Promise<Response> {
+    return fetch(`${baseUrl}/v1/business/${A}/status${free ? '?free=1' : ''}`, {
       headers: ip ? { 'X-Forwarded-For': ip } : {},
     });
   }
+
+  it('default unpaid request answers 402 immediately — the free tier is opt-in', async () => {
+    const res = await getStatus(undefined, { free: false });
+    expect(res.status).toBe(402);
+    expect(res.headers.get('payment-required')).toBeTruthy();
+    expect(state.statusCalls).toHaveLength(0); // never reached NTS
+    // The 402 did not burn quota: the flagged request still gets the free tier.
+    expect((await getStatus()).status).toBe(200);
+  });
 
   it('serves the free tier, then returns 402 with payment requirements', async () => {
     for (let i = 0; i < 10; i++) {
@@ -137,7 +147,7 @@ describe('free tier + x402 gating', () => {
   });
 
   it('batch consumes one unit per number', async () => {
-    const batch = await fetch(`${baseUrl}/v1/business/batch`, {
+    const batch = await fetch(`${baseUrl}/v1/business/batch?free=1`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ business_numbers: Array.from({ length: 8 }, () => A) }),
@@ -150,7 +160,7 @@ describe('free tier + x402 gating', () => {
   });
 
   it('an over-limit batch costs nothing and is rejected as before', async () => {
-    const over = await fetch(`${baseUrl}/v1/business/batch`, {
+    const over = await fetch(`${baseUrl}/v1/business/batch?free=1`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ business_numbers: Array.from({ length: 101 }, () => A) }),

@@ -91,7 +91,7 @@ function toToolResult(res: ServiceResult<StatusResult | VerifyResult | BatchResu
 }
 
 export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
-  const server = new McpServer({ name: 'korea-business-verify', version: '0.2.1' });
+  const server = new McpServer({ name: 'korea-business-verify', version: '0.2.2' });
 
   /**
    * Returns an error result when the free tier is exhausted, null otherwise.

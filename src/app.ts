@@ -2,11 +2,11 @@
  * Express app assembly, separated from boot (index.ts) so tests can build
  * the full app with injected deps and no environment/network requirements.
  *
- * Payments (PHASE2 stage 2): when `x402` options are given, the three REST
- * endpoints get an IP-based free tier (units mirror pricing; the counter is
- * shared with MCP so neither channel bypasses the other) and over-quota
- * requests flow into the x402 payment middleware (HTTP 402). Without the
- * options the app behaves exactly like the free pilot.
+ * Payments (PHASE2 stage 2): when `x402` options are given, unpaid REST
+ * requests answer 402 by default; `?free=1` opts into an IP-based free tier
+ * (units mirror pricing; the counter is shared with MCP so neither channel
+ * bypasses the other). Without the options the app behaves exactly like the
+ * free pilot.
  *
  * MCP runs in stateless mode (sessionIdGenerator: undefined): a fresh
  * McpServer + transport per POST /mcp, the SDK-recommended shape for
@@ -200,8 +200,13 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
         next();
         return;
       }
-      if (quota?.tryConsume(req.ip ?? 'unknown', units)) {
-        next(); // free tier
+      // The REST free tier is opt-in (?free=1): the default unpaid response
+      // must be 402, or the Bazaar validator's required "returns_402" check
+      // fails and the routes stay undiscoverable (and anyone could scrape the
+      // data free by rotating IPs). MCP keeps using the shared counter
+      // automatically — see the quota gate in mcp.ts.
+      if (req.query.free === '1' && quota?.tryConsume(req.ip ?? 'unknown', units)) {
+        next();
         return;
       }
       res.locals.paid = true; // batch handler settles partial usage on this flag

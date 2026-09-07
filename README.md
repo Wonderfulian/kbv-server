@@ -1,6 +1,6 @@
 # Korea Business Verify (KBV) — MCP Server
 
-[![M8ven Score](https://m8ven.ai/badge/mcp/wonderfulian-kbv-server-nnj5uy)](https://m8ven.ai/mcp/wonderfulian-kbv-server-nnj5uy)
+[![M8ven Score](https://m8ven.ai/badge/mcp/wonderfulian-kbv-server-nnj5uy?v=59f4f9779da2cd9d5f2a99ff46cf1436)](https://m8ven.ai/mcp/wonderfulian-kbv-server-nnj5uy)
 
 **KBV is a hosted MCP server that verifies Korean businesses in real time — 10 free calls/day, then pay-per-call (x402).** Give it a 10-digit Korean business registration number (사업자등록번호) and it returns the registration status (active / suspended / closed), tax type, and — optionally — whether the number matches a representative name and opening date. Data comes live from the Korea National Tax Service (NTS) and is returned as clean, English-normalized JSON.
 
@@ -168,24 +168,24 @@ Verify that a business registration number matches the provided representative n
 
 ## REST API
 
-The same three operations are available as plain HTTP endpoints — same JSON schemas as the MCP tools, no auth:
+The same three operations are available as plain HTTP endpoints — same JSON schemas as the MCP tools, no auth. **Append `?free=1` to use the daily free tier** (10 lookups per IP per day); without the flag, unpaid requests return `402` with x402 payment requirements:
 
 ```bash
 # Registration status (hyphens in the number are fine)
-curl https://kbv-server-f7vfitmlkq-du.a.run.app/v1/business/124-81-00998/status
+curl "https://kbv-server-f7vfitmlkq-du.a.run.app/v1/business/124-81-00998/status?free=1"
 
 # KYB identity check
-curl -X POST https://kbv-server-f7vfitmlkq-du.a.run.app/v1/business/verify \
+curl -X POST "https://kbv-server-f7vfitmlkq-du.a.run.app/v1/business/verify?free=1" \
   -H "Content-Type: application/json" \
   -d '{"business_number":"124-81-00998","representative_name":"홍길동","opening_date":"1969-01-13"}'
 
 # Batch status check (up to 100 numbers)
-curl -X POST https://kbv-server-f7vfitmlkq-du.a.run.app/v1/business/batch \
+curl -X POST "https://kbv-server-f7vfitmlkq-du.a.run.app/v1/business/batch?free=1" \
   -H "Content-Type: application/json" \
   -d '{"business_numbers":["124-81-00998","220-81-62517"]}'
 ```
 
-HTTP status codes: `200` success (including cache-served results), `400` invalid input, `503` NTS temporarily unavailable with no cached result.
+HTTP status codes: `200` success (including cache-served results), `400` invalid input, `402` payment required (no `?free=1`, or the daily free tier is exhausted — pay per call via x402), `503` NTS temporarily unavailable with no cached result.
 
 ## Errors
 
@@ -213,7 +213,7 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 
 ## Pricing
 
-- **Free tier: 10 lookups per IP per day** (a batch call counts one per number), resetting at 00:00 UTC. No account or key is needed. MCP and REST share the same counter.
+- **Free tier: 10 lookups per IP per day** (a batch call counts one per number), resetting at 00:00 UTC. No account or key is needed. MCP tools use it automatically; REST calls opt in by appending **`?free=1`** — without the flag, REST answers `402` with x402 payment requirements. MCP and REST share the same counter.
 - Beyond the free tier, the REST endpoints are **pay-per-call via the [x402](https://www.x402.org/) protocol** (USDC on Base mainnet, agent-payable — no signup):
   - `GET /v1/business/{number}/status` — **$0.02**
   - `POST /v1/business/verify` — **$0.05**
