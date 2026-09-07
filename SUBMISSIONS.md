@@ -145,7 +145,7 @@ Privacy: query contents (business numbers, names) are never logged. Data license
 Please list on https://mcp.so as a remote Streamable HTTP server.
 ````
 
-- [x] **이슈 제출됨** ([chatmcp/mcpso#3741](https://github.com/chatmcp/mcpso/issues/3741), 2026-08-25)  - [ ] 등재 확인됨 (메인테이너 처리 대기)
+- [x] **이슈 제출됨** ([chatmcp/mcpso#3741](https://github.com/chatmcp/mcpso/issues/3741), 2026-08-25) — **본문 최신화 완료 (2026-09-07**: 새 가격 문구 + batch 툴**)**  - [ ] 등재 확인됨 (메인테이너 처리 대기)
 
 ### 6. awesome-mcp-korea — 🧑 사람 ~5분 (GitHub 웹 에디터가 포크+PR 자동 생성)
 
@@ -155,7 +155,7 @@ Please list on https://mcp.so as a remote Streamable HTTP server.
    **[kbv-server](https://github.com/Wonderfulian/kbv-server)** – 국세청 API 기반 사업자등록 상태조회·진위확인(KYB) 원격 MCP 서버입니다. 설치·API 키 없이 URL 하나로 연결하며, 하루 10회 무료 후 x402 종량 과금입니다.
    ```
 3. **Commit changes** → **Create pull request** (제목 예: `Add Korea Business Verify (KBV)`)
-- [ ] PR 생성됨  - [ ] 병합됨
+- [x] **PR 생성됨** (2026-09-07)  - [ ] 병합됨 (대기)
 
 ## 분담 요약
 
