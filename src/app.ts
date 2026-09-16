@@ -46,10 +46,29 @@ export interface X402Options {
 
 const STATUS_PATH = /^\/v1\/business\/[^/]+\/status$/;
 
-/** Bazaar catalog metadata shared by the three paid routes (ASCII, per spec limits). */
-const BAZAAR_SERVICE = {
-  serviceName: 'Korea Business Verify (KBV)', // <= 32 ASCII chars
-  tags: ['korea', 'business', 'kyb', 'verification', 'nts'], // <= 5 tags
+/**
+ * Bazaar catalog metadata. The service name is shared; tags and descriptions
+ * are per route on purpose: with one shared vocabulary the catalog's semantic
+ * search ranked the status route first for every query (even batch ones) and
+ * returned nothing for intent queries that never say "korea" — so each route
+ * now carries its own intent words plus generic KYB/screening terms.
+ * Spec limits: serviceName <= 32 ASCII chars, at most 5 tags (extras dropped).
+ */
+const BAZAAR_SERVICE_NAME = 'Korea Business Verify (KBV)';
+
+const BAZAAR_STATUS = {
+  serviceName: BAZAAR_SERVICE_NAME,
+  tags: ['company-status', 'business-lookup', 'compliance', 'kyb', 'korea'],
+};
+
+const BAZAAR_VERIFY = {
+  serviceName: BAZAAR_SERVICE_NAME,
+  tags: ['kyb', 'due-diligence', 'identity-verification', 'compliance', 'korea'],
+};
+
+const BAZAAR_BATCH = {
+  serviceName: BAZAAR_SERVICE_NAME,
+  tags: ['supplier-screening', 'bulk-verification', 'batch-kyb', 'onboarding', 'korea'],
 };
 
 /** Real response shape used in Bazaar discovery examples (Samsung Electronics, live lookup). */
@@ -100,9 +119,11 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
     const routes = {
       'GET /v1/business/:brno/status': {
         accepts: [{ scheme: 'exact', price: '$0.02', network, payTo }],
-        description: 'Korean business registration status + tax type by business number (NTS, real-time)',
+        description:
+          'Check whether a company is still operating: active, suspended or closed registration status ' +
+          'plus tax type, looked up by business registration number. Live Korean National Tax Service (NTS) data.',
         mimeType: 'application/json',
-        ...BAZAAR_SERVICE,
+        ...BAZAAR_STATUS,
         extensions: {
           ...declareDiscoveryExtension({
             pathParams: { brno: '124-81-00998' },
@@ -121,9 +142,12 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
       },
       'POST /v1/business/verify': {
         accepts: [{ scheme: 'exact', price: '$0.05', network, payTo }],
-        description: 'Korean business KYB identity check: number + representative name + opening date',
+        description:
+          'KYB identity verification for due diligence and compliance: confirm that a business registration ' +
+          'number really matches the representative (CEO) name and opening date before onboarding, contracting ' +
+          'with or paying a counterparty. Live Korean National Tax Service (NTS) data.',
         mimeType: 'application/json',
-        ...BAZAAR_SERVICE,
+        ...BAZAAR_VERIFY,
         extensions: {
           ...declareDiscoveryExtension({
             bodyType: 'json',
@@ -152,9 +176,12 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
         // "upto": client authorizes the $2.00 ceiling; the handler settles
         // the actual usage ($0.02 x numbers) via setSettlementOverrides.
         accepts: [{ scheme: 'upto', price: '$2.00', network, payTo }],
-        description: 'Batch Korean business status check, $0.02 per number, up to 100 per call',
+        description:
+          'Bulk supplier list screening: check up to 100 companies at once, $0.02 per number, with per-number ' +
+          'results and a summary. Batch KYB screening for vendor, customer and supplier onboarding lists. ' +
+          'Live Korean National Tax Service (NTS) data.',
         mimeType: 'application/json',
-        ...BAZAAR_SERVICE,
+        ...BAZAAR_BATCH,
         extensions: {
           ...declareEip2612GasSponsoringExtension(),
           ...declareDiscoveryExtension({
