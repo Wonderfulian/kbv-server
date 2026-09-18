@@ -25,7 +25,7 @@ Built for AI agents and developers doing KYB / due-diligence on Korean companies
 | REST API | `GET /v1/business/{number}/status` · `POST /v1/business/verify` · `POST /v1/business/batch` — see [REST API](#rest-api) |
 | Data source | Korea National Tax Service (국세청), official open-data API — queried live per request |
 | Data license | Korean government open data, **no usage restrictions** (이용허락범위 제한 없음) |
-| Privacy | Query contents are never logged — see [Privacy](#privacy) |
+| Privacy | KBV logs no query contents; numbers in GET URLs reach cloud access logs (14-day retention) — see [Privacy](#privacy) |
 | Region | Google Cloud Run, Seoul (asia-northeast3) |
 
 ## Connect your agent
@@ -207,8 +207,10 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 
 ## Privacy
 
-- **Query contents are never logged.** Business numbers, representative names, and addresses appear in no server logs and are sent nowhere except the official NTS API that answers the query.
-- Server logs contain only request counts, outcomes, and latency metrics.
+- **KBV's own logs never contain query contents.** The service writes only event counts, outcomes, and latency; business numbers, representative names, and addresses are never written to them, and are sent nowhere except the official NTS API that answers the query.
+- **One exception, inherent to HTTP:** `GET /v1/business/{number}/status` carries the business number in the URL path, so it appears in the platform access log that Google Cloud Run records for every request. Those entries are retained for **14 days**, then deleted automatically. KBV cannot mask a single field inside them: Cloud Logging filters whole entries, it does not rewrite them.
+- **Not affected:** `POST /v1/business/verify`, `POST /v1/business/batch` and all MCP tool calls send their inputs in the request body, which access logs do not record. Prefer these if you would rather no identifier appear in any log.
+- For context, a Korean business registration number is a public company identifier rather than personal data — though a sole proprietorship is registered to an individual, so the distinction above is worth knowing.
 - A short-lived in-memory cache (24 h max, hashed keys) exists solely so the service can answer during NTS outages; it is never shared or exported.
 
 ## Pricing

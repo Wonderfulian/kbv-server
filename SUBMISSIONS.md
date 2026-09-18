@@ -33,7 +33,7 @@ Example prompts:
 - "Check the status of Korean business 124-81-00998."
 - "Verify that Korean business 214-87-12345 belongs to 홍길동, opened 2015-03-02."
 
-Privacy: query contents (business numbers, names) are never logged. Data license: Korean government open data, no usage restrictions. Pricing: 10 free calls/day per IP; beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
+Privacy: KBV logs no query contents (business numbers, names); a number passed in the GET status URL does appear in the cloud provider access log for 14 days, while POST and MCP calls send inputs in the request body and are not logged. Data license: Korean government open data, no usage restrictions. Pricing: 10 free calls/day per IP; beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
 ```
 
 **Tags / categories**:
@@ -140,7 +140,7 @@ curl -s -X POST https://kbv-server-f7vfitmlkq-du.a.run.app/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
 
-Privacy: query contents (business numbers, names) are never logged. Data license: Korean government open data, no usage restrictions. Pricing: 10 free calls/day per IP; beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
+Privacy: KBV logs no query contents (business numbers, names); a number passed in the GET status URL does appear in the cloud provider access log for 14 days, while POST and MCP calls send inputs in the request body and are not logged. Data license: Korean government open data, no usage restrictions. Pricing: 10 free calls/day per IP; beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
 
 Please list on https://mcp.so as a remote Streamable HTTP server.
 ````
