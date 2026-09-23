@@ -88,5 +88,32 @@ export function buildRestRouter(deps: Deps): Router {
     send(res, out);
   });
 
+  // Name search. Two tiers on one route: the free tier (?free=1) answers with
+  // identity and confidence so an agent that knows only a name can still get
+  // to a number, while a paid call adds the evidence that tells similarly
+  // named companies apart. res.locals.paid is set by the payment middleware.
+  router.get('/v1/business/search', async (req, res) => {
+    if (!deps.search) {
+      res.status(503).json({ error: 'search_unavailable', message: 'The name index is not configured on this server.' });
+      return;
+    }
+    const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (!query) {
+      res.status(400).json({ error: 'invalid_request', message: 'Query parameter "q" (company name) is required.' });
+      return;
+    }
+    const started = Date.now();
+    try {
+      const out = await deps.search(query, { full: res.locals.paid === true, limit: 5 });
+      // A search with no hits is a valid answer, not a failure — the metric
+      // counts calls served, and "no such company" is one of them.
+      deps.log?.({ tool: 'rest_search', outcome: 'ok', ms: Date.now() - started });
+      res.status(200).json(out);
+    } catch {
+      deps.log?.({ tool: 'rest_search', outcome: 'upstream_unavailable', ms: Date.now() - started });
+      res.status(503).json({ error: 'upstream_unavailable', message: 'The name index could not be read. Retry shortly.' });
+    }
+  });
+
   return router;
 }

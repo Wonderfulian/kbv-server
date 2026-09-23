@@ -71,6 +71,11 @@ const BAZAAR_BATCH = {
   tags: ['supplier-screening', 'bulk-verification', 'batch-kyb', 'onboarding', 'korea'],
 };
 
+const BAZAAR_SEARCH = {
+  serviceName: BAZAAR_SERVICE_NAME,
+  tags: ['company-search', 'name-lookup', 'entity-resolution', 'kyb', 'korea'],
+};
+
 /** Real response shape used in Bazaar discovery examples (Samsung Electronics, live lookup). */
 const STATUS_EXAMPLE = {
   business_number: '1248100998',
@@ -83,11 +88,30 @@ const STATUS_EXAMPLE = {
   cache: false,
 };
 
+/** Bazaar example for the search route — the paid (evidence-bearing) shape. */
+const SEARCH_EXAMPLE = {
+  query: 'Samsung Electronics',
+  candidates: [
+    {
+      business_number: '1248100998',
+      name: '삼성전자(주)',
+      name_en: 'SAMSUNG ELECTRONICS CO,.LTD',
+      confidence: 1,
+      match: { type: 'exact', field: 'name_en' },
+      evidence: { status: 'active', tax_type: 'general', listed: true },
+    },
+  ],
+  note: '4 companies match this name equally well; they are distinct legal entities.',
+};
+
 /**
  * Lookup units a request will consume from the free tier; null = unmetered
  * route, 0 = invalid input that the service will reject anyway (free).
  */
 function meteredUnits(req: express.Request): number | null {
+  // Search is metered like a lookup, but its free tier returns a usable
+  // answer (identity + confidence) rather than a 402 — see rest.ts.
+  if (req.method === 'GET' && req.path === '/v1/business/search') return 1;
   if (req.method === 'GET' && STATUS_PATH.test(req.path)) return 1;
   if (req.method === 'POST' && req.path === '/v1/business/verify') return 1;
   if (req.method === 'POST' && req.path === '/v1/business/batch') {
@@ -137,6 +161,25 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
               required: ['brno'],
             },
             output: { example: STATUS_EXAMPLE },
+          }),
+        },
+      },
+      'GET /v1/business/search': {
+        accepts: [{ scheme: 'exact', price: '$0.02', network, payTo }],
+        description:
+          'Find a Korean company by name when you do not know its registration number: ranked candidates ' +
+          'with a confidence score plus the evidence that tells similarly named companies apart — ' +
+          'registration status, tax type and region. English and Korean names both work.',
+        mimeType: 'application/json',
+        ...BAZAAR_SEARCH,
+        extensions: {
+          ...declareDiscoveryExtension({
+            input: { q: 'Samsung Electronics' },
+            inputSchema: {
+              properties: { q: { type: 'string', description: 'Company name, English or Korean' } },
+              required: ['q'],
+            },
+            output: { example: SEARCH_EXAMPLE },
           }),
         },
       },

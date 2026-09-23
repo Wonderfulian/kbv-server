@@ -5,8 +5,16 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createG2bClient, monthWindows, toVendor, truncateRegion, type G2bVendor } from '../src/g2b.js';
-import { collectVendors, dedupeVendors, mergeVendorsIntoIndex, parseMonth, toCorpus } from '../src/g2b-collect-job.js';
+import { createG2bClient, monthWindows, toVendor, truncateRegion, type G2bSanction, type G2bVendor } from '../src/g2b.js';
+import {
+  collectVendors,
+  dedupeVendors,
+  mergeVendorsIntoIndex,
+  parseMonth,
+  toCorpus,
+  PROGRESS_PATH,
+  type CollectProgress,
+} from '../src/g2b-collect-job.js';
 import type { NameIndexEntry } from '../src/name-index.js';
 import type { CorpusEntry } from '../src/snapshot.js';
 
@@ -99,22 +107,27 @@ describe('collectVendors', () => {
     { business_number: '2208162517', name: '두번째업체' },
   ];
 
-  function fakeClient(byMonth: Record<string, G2bVendor[]>, fail: string[] = []) {
+  function fakeClient(byMonth: Record<string, G2bVendor[]>, fail: string[] = [], sanctions: G2bSanction[] = []) {
     return {
       async fetchMonth(w: { from: string }) {
         const label = `${w.from.slice(0, 4)}-${w.from.slice(4, 6)}`;
         if (fail.includes(label)) throw new Error('upstream 503');
         return byMonth[label] ?? [];
       },
+      async fetchSanctions() {
+        return sanctions;
+      },
     };
   }
 
   function stores() {
     const index: NameIndexEntry[] = [{ corp_code: '00126380', name: '삼성전자', source: 'dart' }];
-    const corpus: CorpusEntry[] = [{ business_number: '9999999999', corpus_source: 'g2b_sanctions' }];
+    const corpus: CorpusEntry[] = [{ business_number: '9999999999', corpus_source: 'ftc_online_sellers' }];
+    const json = new Map<string, unknown>();
     return {
       index,
       corpus,
+      json,
       indexStore: {
         async read() {
           return index;
@@ -122,6 +135,12 @@ describe('collectVendors', () => {
         async write(entries: NameIndexEntry[]) {
           index.length = 0;
           index.push(...entries);
+        },
+        async readJson<T>(path: string) {
+          return (json.get(path) as T) ?? null;
+        },
+        async writeJson(path: string, data: unknown) {
+          json.set(path, JSON.parse(JSON.stringify(data)));
         },
       },
       snapshotStore: {
@@ -149,9 +168,69 @@ describe('collectVendors', () => {
     expect(summary).toMatchObject({ unique_vendors: 2, months: 1, failed_months: 0 });
     expect(s.index.filter((e) => e.source === 'dart')).toHaveLength(1); // DART slice untouched
     expect(s.index.filter((e) => e.source === 'g2b')).toHaveLength(2);
-    // The sanctions corpus entry survives; vendors are added alongside it.
-    expect(s.corpus.filter((c) => c.corpus_source === 'g2b_sanctions')).toHaveLength(1);
+    // Another list's corpus entry survives; vendors are added alongside it.
+    expect(s.corpus.filter((c) => c.corpus_source === 'ftc_online_sellers')).toHaveLength(1);
     expect(s.corpus.filter((c) => c.corpus_source === 'g2b_vendors')).toHaveLength(2);
+  });
+
+  it('bounds the corpus to recent months but keeps every sanctioned company', async () => {
+    const s = stores();
+    const old: G2bVendor = { business_number: '3333333333', name: '오래된업체' };
+    const oldButSanctioned: G2bVendor = { business_number: '4444444444', name: '제재받은옛업체' };
+    const summary = await collectVendors({
+      g2b: fakeClient(
+        { '2026-09': vendors, '2026-07': [old, oldButSanctioned] },
+        [],
+        [{ business_number: '4444444444', name: '제재받은옛업체', status: '처분확정' }],
+      ),
+      indexStore: s.indexStore,
+      snapshotStore: s.snapshotStore,
+      from: new Date('2026-07-01T00:00:00Z'),
+      to: new Date('2026-09-30T00:00:00Z'),
+      corpusMonths: 1, // only 2026-09 counts as "recent"
+    });
+
+    // All four remain searchable in the index...
+    expect(s.index.filter((e) => e.source === 'g2b')).toHaveLength(4);
+    // ...but only the recent two, plus the sanctioned old one, are watched daily.
+    const watched = s.corpus.map((c) => c.business_number);
+    expect(watched).toContain('1248100998'); // recent
+    expect(watched).toContain('4444444444'); // old, but sanctioned
+    expect(watched).not.toContain('3333333333'); // old, not sanctioned
+    expect(summary).toMatchObject({ corpus_recent_vendors: 2, corpus_sanctioned: 1, sanctions: 1 });
+  });
+
+  it('checkpoints progress after every month and can resume', async () => {
+    const s = stores();
+    const deps = {
+      g2b: fakeClient({ '2026-09': vendors, '2026-08': [] }, ['2026-08']),
+      indexStore: s.indexStore,
+      snapshotStore: s.snapshotStore,
+      from: new Date('2026-08-01T00:00:00Z'),
+      to: new Date('2026-09-30T00:00:00Z'),
+    };
+    await collectVendors(deps);
+
+    const progress = s.json.get(PROGRESS_PATH) as CollectProgress;
+    expect(progress).toMatchObject({ total_months: 2, completed_months: ['2026-09'], failed_months: ['2026-08'] });
+    expect(progress.updated_at).toBeTruthy();
+
+    // A resumed run skips the month already collected.
+    const seen: string[] = [];
+    await collectVendors({
+      ...deps,
+      resume: true,
+      g2b: {
+        async fetchMonth(w: { from: string }) {
+          seen.push(w.from.slice(0, 6));
+          return [];
+        },
+        async fetchSanctions() {
+          return [];
+        },
+      },
+    });
+    expect(seen).toEqual(['202608']); // 2026-09 was already done
   });
 
   it('keeps the months it did collect when one fails', async () => {

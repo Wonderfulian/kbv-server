@@ -23,7 +23,9 @@
  * representative's name above all — is dropped here, at the boundary.
  */
 
-const ENDPOINT = 'https://apis.data.go.kr/1230000/ao/UsrInfoService02/getPrcrmntCorpBasicInfo02';
+const BASE = 'https://apis.data.go.kr/1230000/ao/UsrInfoService02';
+const ENDPOINT = `${BASE}/getPrcrmntCorpBasicInfo02`;
+const SANCTIONS_ENDPOINT = `${BASE}/getUnptRsttCorpInfo02`;
 
 /** Identity-only view of a registered vendor. */
 export interface G2bVendor {
@@ -110,9 +112,55 @@ export interface G2bClientOptions {
   pageSize?: number;
 }
 
+/**
+ * A debarment ("부정당업자 제재"): the registry's own record that a vendor was
+ * barred from public bidding. Company-level only — the upstream does not
+ * expose a representative's name here, and we would drop it if it did.
+ */
+export interface G2bSanction {
+  business_number: string;
+  name: string;
+  /** ISO dates as published (YYYY-MM-DD). */
+  begins_on?: string;
+  ends_on?: string;
+  institution?: string;
+  law?: string;
+  /** Disposition state, e.g. 처분확정 / 집행정지. */
+  status?: string;
+}
+
+interface RawSanction {
+  bizno?: string;
+  corpNm?: string;
+  rsttBgnDate?: string;
+  rsttEndDate?: string;
+  insttNm?: string;
+  lawordNm?: string;
+  lawordArtclClause?: string;
+  rsttProgrsNm?: string;
+}
+
+export function toSanction(raw: RawSanction): G2bSanction | null {
+  const number = (raw.bizno ?? '').replace(/\D/g, '');
+  const name = (raw.corpNm ?? '').trim();
+  if (number.length !== 10 || !name) return null;
+  const law = [raw.lawordNm, raw.lawordArtclClause].filter(Boolean).join(' ').trim();
+  return {
+    business_number: number,
+    name,
+    ...(raw.rsttBgnDate ? { begins_on: raw.rsttBgnDate } : {}),
+    ...(raw.rsttEndDate ? { ends_on: raw.rsttEndDate } : {}),
+    ...(raw.insttNm ? { institution: raw.insttNm } : {}),
+    ...(law ? { law } : {}),
+    ...(raw.rsttProgrsNm ? { status: raw.rsttProgrsNm } : {}),
+  };
+}
+
 export interface G2bClient {
   /** Every vendor registered within one month window. */
   fetchMonth(window: { from: string; to: string }): Promise<G2bVendor[]>;
+  /** Debarments notified within a window (this feed takes inqryDiv=2). */
+  fetchSanctions(window: { from: string; to: string }): Promise<G2bSanction[]>;
 }
 
 export function createG2bClient(opts: G2bClientOptions): G2bClient {
@@ -120,38 +168,49 @@ export function createG2bClient(opts: G2bClientOptions): G2bClient {
   const timeoutMs = opts.timeoutMs ?? 30000;
   const pageSize = Math.min(opts.pageSize ?? 999, 999);
 
-  return {
-    async fetchMonth(window) {
-      const vendors: G2bVendor[] = [];
-      for (let page = 1; ; page++) {
-        const url = new URL(ENDPOINT);
-        url.searchParams.set('serviceKey', opts.serviceKey);
-        url.searchParams.set('type', 'json');
-        url.searchParams.set('inqryDiv', '1');
-        url.searchParams.set('inqryBgnDt', window.from);
-        url.searchParams.set('inqryEndDt', window.to);
-        url.searchParams.set('pageNo', String(page));
-        url.searchParams.set('numOfRows', String(pageSize));
+  /** Pages one feed until a short page arrives, mapping rows as it goes. */
+  async function fetchAll<TRaw, TOut>(
+    endpoint: string,
+    inqryDiv: string,
+    window: { from: string; to: string },
+    map: (raw: TRaw) => TOut | null,
+  ): Promise<TOut[]> {
+    const out: TOut[] = [];
+    for (let page = 1; ; page++) {
+      const url = new URL(endpoint);
+      url.searchParams.set('serviceKey', opts.serviceKey);
+      url.searchParams.set('type', 'json');
+      url.searchParams.set('inqryDiv', inqryDiv);
+      url.searchParams.set('inqryBgnDt', window.from);
+      url.searchParams.set('inqryEndDt', window.to);
+      url.searchParams.set('pageNo', String(page));
+      url.searchParams.set('numOfRows', String(pageSize));
 
-        const res = await doFetch(url, { signal: AbortSignal.timeout(timeoutMs) });
-        if (!res.ok) throw new G2bError(`G2B responded ${res.status}`);
-        const body = (await res.json()) as {
-          response?: { body?: { items?: RawVendor[]; totalCount?: number } };
-          'nkoneps.com.response.ResponseError'?: { header?: { resultCode?: string; resultMsg?: string } };
-        };
+      const res = await doFetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+      if (!res.ok) throw new G2bError(`G2B responded ${res.status}`);
+      const body = (await res.json()) as {
+        response?: { body?: { items?: TRaw[]; totalCount?: number } };
+        'nkoneps.com.response.ResponseError'?: { header?: { resultCode?: string; resultMsg?: string } };
+      };
 
-        // The non-standard error envelope: without this check a failure looks
-        // exactly like an empty month.
-        const err = body['nkoneps.com.response.ResponseError']?.header;
-        if (err) throw new G2bError(err.resultMsg ?? 'G2B error', err.resultCode);
+      // The non-standard error envelope: without this check a failure looks
+      // exactly like an empty period.
+      const err = body['nkoneps.com.response.ResponseError']?.header;
+      if (err) throw new G2bError(err.resultMsg ?? 'G2B error', err.resultCode);
 
-        const rows = body.response?.body?.items ?? [];
-        for (const raw of rows) {
-          const vendor = toVendor(raw);
-          if (vendor) vendors.push(vendor);
-        }
-        if (rows.length < pageSize) return vendors;
+      const rows = body.response?.body?.items ?? [];
+      for (const raw of rows) {
+        const mapped = map(raw);
+        if (mapped) out.push(mapped);
       }
-    },
+      if (rows.length < pageSize) return out;
+    }
+  }
+
+  return {
+    fetchMonth: (window) => fetchAll<RawVendor, G2bVendor>(ENDPOINT, '1', window, toVendor),
+    // The debarment feed answers to inqryDiv=2; with '1' it returns an empty
+    // set rather than an error, which reads as "no sanctions" if untested.
+    fetchSanctions: (window) => fetchAll<RawSanction, G2bSanction>(SANCTIONS_ENDPOINT, '2', window, toSanction),
   };
 }

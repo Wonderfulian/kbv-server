@@ -9,6 +9,7 @@
  */
 
 import { statusKey, verifyKey, type KbvCache } from './cache.js';
+import type { SearchResponse } from './search.js';
 import {
   buildStatusResult,
   InvalidInputError,
@@ -32,6 +33,12 @@ export interface Deps {
   cache: KbvCache;
   /** Metrics only — implementations must not receive or log query contents. */
   log?: (info: { tool: string; outcome: ToolOutcome; ms: number }) => void;
+  /**
+   * Name search, injected only where a name index is configured. Absent on a
+   * plain deployment, which then answers 503 for the search route rather than
+   * pretending to have an empty index.
+   */
+  search?: (query: string, opts: { full: boolean; limit?: number }) => Promise<SearchResponse>;
 }
 
 export interface ServiceError {

@@ -163,6 +163,45 @@ export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
     },
   );
 
+  if (deps.search) {
+    server.registerTool(
+      'find_korean_business',
+      {
+        title: 'Find a Korean business by name',
+        description:
+          'Find a Korean company by name (English or Korean) when you do not know its 10-digit business ' +
+          'registration number — the number every other tool here needs. Returns ranked candidates with a ' +
+          'confidence score and discriminating evidence (registration status, tax type, region), because a ' +
+          'name can match several distinct companies: "Samsung Electronics" matches four. Sources: DART ' +
+          '(disclosure filers, English names) and the Public Procurement Service registry (small businesses).',
+        annotations: LOOKUP_TOOL_ANNOTATIONS,
+        inputSchema: {
+          name: z.string().min(1).describe('Company name in English or Korean, e.g. "Samsung Electronics" or "삼성전자"'),
+          limit: z.number().int().min(1).max(10).optional().describe('Maximum candidates to return (default 5)'),
+        },
+      },
+      async ({ name, limit }) => {
+        const gate = quotaGate('find_korean_business', 1);
+        if (gate) return gate;
+        const started = Date.now();
+        try {
+          // MCP callers get the full response: they have already spent a free
+          // lookup on it, and a candidate list without evidence would just
+          // force a second call to tell the candidates apart.
+          const out = await (deps.search as NonNullable<Deps['search']>)(name, { full: true, limit: limit ?? 5 });
+          deps.log?.({ tool: 'find_korean_business', outcome: 'ok', ms: Date.now() - started });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(out, null, 2) }],
+            structuredContent: out as unknown as Record<string, unknown>,
+          };
+        } catch {
+          deps.log?.({ tool: 'find_korean_business', outcome: 'upstream_unavailable', ms: Date.now() - started });
+          return errorResult('upstream_unavailable', 'The name index could not be read. Please retry shortly.');
+        }
+      },
+    );
+  }
+
   server.registerTool(
     'verify_korean_business',
     {

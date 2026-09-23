@@ -14,6 +14,13 @@ export const INDEX_PATH = 'index/name-index.jsonl';
 export interface NameIndexStore {
   read(): Promise<NameIndexEntry[]>;
   write(entries: NameIndexEntry[]): Promise<void>;
+  /**
+   * Small side files: collector checkpoints and the sanctions list. A long
+   * backfill that dies at month 143 of 290 must leave behind a record of how
+   * far it got, or the only recovery is to start over.
+   */
+  readJson<T>(path: string): Promise<T | null>;
+  writeJson(path: string, data: unknown): Promise<void>;
 }
 
 function toJsonl(entries: NameIndexEntry[]): string {
@@ -46,6 +53,18 @@ export class GcsNameIndexStore implements NameIndexStore {
   async write(entries: NameIndexEntry[]): Promise<void> {
     await this.bucket.file(INDEX_PATH).save(toJsonl(entries), { contentType: 'application/x-ndjson' });
   }
+
+  async readJson<T>(path: string): Promise<T | null> {
+    const file = this.bucket.file(path);
+    const [exists] = await file.exists();
+    if (!exists) return null;
+    const [buf] = await file.download();
+    return JSON.parse(buf.toString('utf8')) as T;
+  }
+
+  async writeJson(path: string, data: unknown): Promise<void> {
+    await this.bucket.file(path).save(JSON.stringify(data, null, 2), { contentType: 'application/json' });
+  }
 }
 
 export class LocalNameIndexStore implements NameIndexStore {
@@ -63,5 +82,19 @@ export class LocalNameIndexStore implements NameIndexStore {
     const path = join(this.root, INDEX_PATH);
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, toJsonl(entries), 'utf8');
+  }
+
+  async readJson<T>(path: string): Promise<T | null> {
+    try {
+      return JSON.parse(await readFile(join(this.root, path), 'utf8')) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  async writeJson(path: string, data: unknown): Promise<void> {
+    const target = join(this.root, path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, JSON.stringify(data, null, 2), 'utf8');
   }
 }
