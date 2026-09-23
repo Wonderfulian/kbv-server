@@ -73,7 +73,7 @@ const BAZAAR_BATCH = {
 
 const BAZAAR_SEARCH = {
   serviceName: BAZAAR_SERVICE_NAME,
-  tags: ['company-search', 'name-lookup', 'entity-resolution', 'kyb', 'korea'],
+  tags: ['find-company-by-name', 'company-search', 'name-to-id', 'entity-resolution', 'korea'],
 };
 
 /** Real response shape used in Bazaar discovery examples (Samsung Electronics, live lookup). */
@@ -167,9 +167,10 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
       'GET /v1/business/search': {
         accepts: [{ scheme: 'exact', price: '$0.02', network, payTo }],
         description:
-          'Find a Korean company by name when you do not know its registration number: ranked candidates ' +
-          'with a confidence score plus the evidence that tells similarly named companies apart — ' +
-          'registration status, tax type and region. English and Korean names both work.',
+          'Search for a Korean company by name and get its business registration number. Use this when you ' +
+          'only know what a company is called — in English or Korean — and need the 10-digit number that ' +
+          'other lookups require. Returns ranked candidates with a confidence score and the evidence that ' +
+          'tells similarly named companies apart: registration status, tax type and region.',
         mimeType: 'application/json',
         ...BAZAAR_SEARCH,
         extensions: {

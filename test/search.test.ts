@@ -65,6 +65,12 @@ describe('search tiers', () => {
     const out = await searchBusinesses({ loadIndex, nts }, 'Totally Unknown Corp');
     expect(out.candidates).toEqual([]);
   });
+
+  it('says an empty result is definitive, so it cannot be read as a failure', async () => {
+    const out = await searchBusinesses({ loadIndex, nts }, 'Totally Unknown Corp');
+    expect(out.note).toMatch(/definitive empty result, not an error/);
+    expect(out.note).toMatch(/DART|procurement/);
+  });
 });
 
 describe('lazy number resolution', () => {
@@ -132,18 +138,19 @@ describe('memoizeIndex', () => {
 });
 
 describe('GET /v1/business/search', () => {
-  let server: Server | undefined;
+  const servers: Server[] = [];
 
   afterEach(async () => {
-    if (server) await new Promise<void>((resolve, reject) => server?.close((e) => (e ? reject(e) : resolve())));
-    server = undefined;
+    await Promise.all(
+      servers.splice(0).map((s) => new Promise<void>((resolve, reject) => s.close((e) => (e ? reject(e) : resolve())))),
+    );
   });
 
   async function start(deps: Deps): Promise<string> {
-    const app = buildApp(deps);
-    server = app.listen(0);
-    await new Promise<void>((resolve) => server?.once('listening', resolve));
-    return `http://127.0.0.1:${(server?.address() as AddressInfo).port}`;
+    const server = buildApp(deps).listen(0);
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }
 
   const searchDeps: Deps = {
@@ -171,5 +178,26 @@ describe('GET /v1/business/search', () => {
     const res = await fetch(`${base}/v1/business/search?q=Samsung`);
     expect(res.status).toBe(503);
     expect((await res.json()).error).toBe('search_unavailable');
+  });
+
+  it('separates "no such company" (200, empty) from "lookup failed" (503)', async () => {
+    const base = await start(searchDeps);
+    const empty = await fetch(`${base}/v1/business/search?q=Nonexistent%20Company%20Xyz`);
+    expect(empty.status).toBe(200);
+    const body = (await empty.json()) as { candidates: unknown[]; note?: string; error?: string };
+    expect(body.candidates).toEqual([]);
+    expect(body.error).toBeUndefined(); // an answer, not an error
+    expect(body.note).toBeTruthy();
+
+    const broken = await start({
+      nts,
+      cache: createCache(),
+      search: async () => {
+        throw new Error('index bucket unreachable');
+      },
+    });
+    const failed = await fetch(`${broken}/v1/business/search?q=Samsung`);
+    expect(failed.status).toBe(503);
+    expect((await failed.json()).error).toBe('upstream_unavailable');
   });
 });

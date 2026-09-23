@@ -118,7 +118,21 @@ export async function searchBusinesses(
 ): Promise<SearchResponse> {
   const index = await deps.loadIndex();
   const ranked = searchIndex(index, query, { limit: opts.limit ?? 5 });
-  if (!ranked.length) return { query, candidates: [] };
+  if (!ranked.length) {
+    // An empty result must read as an answer, not a malfunction: an agent
+    // that cannot tell "no such company" from "the lookup broke" will either
+    // retry forever or report a company as nonexistent when we simply failed.
+    // The transport says the same thing — 200 here, 503 when we actually fail.
+    return {
+      query,
+      candidates: [],
+      note:
+        'No company in the index matches this name. This is a definitive empty result, not an error: the ' +
+        'index covers DART disclosure filers and registered public-procurement vendors, so a business in ' +
+        'neither — a very small or newly founded one — may exist without appearing here. If you already ' +
+        'know the 10-digit registration number, use the status or verify tools instead.',
+    };
+  }
 
   await resolveNumbers(deps, ranked);
   const evidence = opts.full ? await fetchEvidence(deps, ranked) : new Map();
