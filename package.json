@@ -14,10 +14,13 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "snapshot": "node dist/snapshot-job.js",
+    "snapshot:dry": "tsx src/snapshot-job.ts"
   },
   "dependencies": {
     "@coinbase/x402": "^2.1.0",
+    "@google-cloud/storage": "^8.2.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@x402/core": "^2.23.0",
     "@x402/evm": "^2.23.0",
