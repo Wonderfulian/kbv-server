@@ -25,6 +25,14 @@ export interface NameIndexEntry {
   corp_code?: string;
   /** Listed companies rank above their affiliates for a bare brand query. */
   listed?: boolean;
+  /**
+   * City/district only (e.g. "경기도 남양주시"), stored for procurement-registry
+   * entries alone. Evidence is normally fetched live at query time, but that
+   * registry has no per-company lookup — it can only be read by period — so a
+   * candidate from it would otherwise carry no discriminator at all. Never a
+   * street address: a sole proprietor's is often their home.
+   */
+  region?: string;
   source: IndexSource;
 }
 

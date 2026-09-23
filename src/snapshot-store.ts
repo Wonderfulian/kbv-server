@@ -56,6 +56,10 @@ export class GcsSnapshotStore implements SnapshotStore {
     return fromJsonl<CorpusEntry>(buf.toString('utf8'));
   }
 
+  async writeCorpus(entries: CorpusEntry[]): Promise<void> {
+    await this.bucket.file(CORPUS_PATH).save(toJsonl(entries), { contentType: 'application/x-ndjson' });
+  }
+
   async readLatestSnapshotBefore(date: string): Promise<{ date: string; records: SnapshotRecord[] } | null> {
     const [files] = await this.bucket.getFiles({ prefix: STATUS_PREFIX });
     const previous = latestDateBefore(
@@ -96,6 +100,10 @@ export class LocalSnapshotStore implements SnapshotStore {
     } catch {
       return [];
     }
+  }
+
+  async writeCorpus(entries: CorpusEntry[]): Promise<void> {
+    await this.write(CORPUS_PATH, toJsonl(entries));
   }
 
   async readLatestSnapshotBefore(date: string): Promise<{ date: string; records: SnapshotRecord[] } | null> {

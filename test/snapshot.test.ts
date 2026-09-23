@@ -39,6 +39,9 @@ class MemoryStore implements SnapshotStore {
   async readCorpus() {
     return this.corpus;
   }
+  async writeCorpus(entries: CorpusEntry[]) {
+    this.corpus = entries;
+  }
   async readLatestSnapshotBefore(date: string) {
     const previous = [...this.snapshots.keys()].filter((d) => d < date).sort().at(-1);
     return previous ? { date: previous, records: this.snapshots.get(previous) as SnapshotRecord[] } : null;

@@ -76,6 +76,8 @@ export interface ChangeRecord {
 export interface SnapshotStore {
   /** Corpus for this run. Must contain only PUBLIC_CORPUS_SOURCES entries. */
   readCorpus(): Promise<CorpusEntry[]>;
+  /** Replaces the corpus — written by the collectors, never by this job. */
+  writeCorpus(entries: CorpusEntry[]): Promise<void>;
   /** Most recent snapshot strictly before `date` (YYYY-MM-DD), if any. */
   readLatestSnapshotBefore(date: string): Promise<{ date: string; records: SnapshotRecord[] } | null>;
   writeSnapshot(date: string, records: SnapshotRecord[]): Promise<void>;
