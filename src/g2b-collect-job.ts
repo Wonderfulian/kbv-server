@@ -19,6 +19,7 @@
  */
 
 import dotenv from 'dotenv';
+import { isMainModule } from './is-main.js';
 import { createG2bClient, monthWindows, type G2bClient, type G2bSanction, type G2bVendor } from './g2b.js';
 import type { NameIndexEntry } from './name-index.js';
 import { GcsNameIndexStore, LocalNameIndexStore, type NameIndexStore } from './name-index-store.js';
@@ -207,7 +208,7 @@ export function parseMonth(value: string): Date {
 
 // --- entry point -----------------------------------------------------------
 
-if (process.env.VITEST === undefined && import.meta.url === `file:///${process.argv[1]?.replace(/\\/g, '/')}`) {
+if (process.env.VITEST === undefined && isMainModule(import.meta.url)) {
   dotenv.config({ quiet: true });
 
   const serviceKey = process.env.NTS_SERVICE_KEY; // one data.go.kr key, all datasets

@@ -17,6 +17,7 @@
  */
 
 import dotenv from 'dotenv';
+import { isMainModule } from './is-main.js';
 import { createDartClient, type DartClient, type DartCorp } from './dart.js';
 import type { NameIndexEntry } from './name-index.js';
 import { GcsNameIndexStore, LocalNameIndexStore, type NameIndexStore } from './name-index-store.js';
@@ -122,7 +123,7 @@ export async function buildIndex(deps: {
 
 // --- entry point -----------------------------------------------------------
 
-if (process.env.VITEST === undefined && import.meta.url === `file:///${process.argv[1]?.replace(/\\/g, '/')}`) {
+if (process.env.VITEST === undefined && isMainModule(import.meta.url)) {
   dotenv.config({ quiet: true });
 
   const apiKey = process.env.DART_API_KEY;
