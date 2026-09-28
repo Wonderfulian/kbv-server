@@ -112,20 +112,40 @@ export interface SearchOptions {
 }
 
 /**
- * Ranks index entries against a query. Both name fields are tried and the
- * stronger match wins, so an English query still finds a company indexed
- * under its Korean name when the two coincide.
+ * The index with its names normalized once.
+ *
+ * Normalizing inside the search loop meant ~1.9 million regex passes per
+ * query over a 940k-entry index — seconds of CPU for work whose answer never
+ * changes. Doing it at load time costs a little memory and turns a search
+ * into plain substring comparisons.
  */
-export function searchIndex(entries: NameIndexEntry[], query: string, opts: SearchOptions = {}): Candidate[] {
+export interface PreparedIndex {
+  entries: NameIndexEntry[];
+  /** Parallel to `entries`: normalized Korean and English names. */
+  keys: { ko: string; en: string }[];
+}
+
+export function prepareIndex(entries: NameIndexEntry[]): PreparedIndex {
+  const keys = entries.map((e) => ({
+    ko: normalizeName(e.name),
+    en: e.name_en ? normalizeName(e.name_en) : '',
+  }));
+  return { entries, keys };
+}
+
+/** Ranks a prepared index. See searchIndex for the one-off convenience form. */
+export function searchPrepared(prepared: PreparedIndex, query: string, opts: SearchOptions = {}): Candidate[] {
   const needle = normalizeName(query);
   if (!needle) return [];
   const limit = opts.limit ?? 5;
   const minConfidence = opts.minConfidence ?? 0;
 
   const found: Candidate[] = [];
-  for (const entry of entries) {
-    const byKo = classify(needle, normalizeName(entry.name));
-    const byEn = entry.name_en ? classify(needle, normalizeName(entry.name_en)) : null;
+  for (let i = 0; i < prepared.entries.length; i++) {
+    const entry = prepared.entries[i];
+    const key = prepared.keys[i];
+    const byKo = classify(needle, key.ko);
+    const byEn = key.en ? classify(needle, key.en) : null;
     let best: Candidate | null = null;
     for (const [type, field] of [
       [byKo, 'name'],
@@ -137,7 +157,11 @@ export function searchIndex(entries: NameIndexEntry[], query: string, opts: Sear
     }
     if (best && best.confidence >= minConfidence) found.push(best);
   }
+  return rank(found, limit);
+}
 
+/** Shared ordering: confidence, then resolved numbers, then shorter names. */
+function rank(found: Candidate[], limit: number): Candidate[] {
   return found
     .sort((a, b) => {
       if (b.confidence !== a.confidence) return b.confidence - a.confidence;
@@ -148,6 +172,15 @@ export function searchIndex(entries: NameIndexEntry[], query: string, opts: Sear
       return a.entry.name.length - b.entry.name.length;
     })
     .slice(0, limit);
+}
+
+/**
+ * Ranks index entries against a query. Both name fields are tried and the
+ * stronger match wins, so an English query still finds a company indexed
+ * under its Korean name when the two coincide.
+ */
+export function searchIndex(entries: NameIndexEntry[], query: string, opts: SearchOptions = {}): Candidate[] {
+  return searchPrepared(prepareIndex(entries), query, opts);
 }
 
 /**

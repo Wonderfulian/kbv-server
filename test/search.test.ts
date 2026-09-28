@@ -39,6 +39,13 @@ const nts: NtsClient = {
 
 const loadIndex = async () => INDEX.map((e) => ({ ...e }));
 
+/**
+ * A distinct loader per test. The service normalizes and caches the index per
+ * loader identity, and lazy number resolution writes onto those entries — so
+ * sharing one loader would leak a resolved number into the next test.
+ */
+const freshLoader = () => async () => INDEX.map((e) => ({ ...e }));
+
 describe('search tiers', () => {
   it('basic tier returns identity and confidence, no evidence', async () => {
     const out = await searchBusinesses({ loadIndex, nts }, 'Samsung Electronics');
@@ -87,9 +94,10 @@ describe('lazy number resolution', () => {
     } as DartClient;
     const resolved = new Map<string, string>();
 
-    const first = await searchBusinesses({ loadIndex, nts, dart, resolved }, 'Samsung Electronics Sales');
+    const load = freshLoader();
+    const first = await searchBusinesses({ loadIndex: load, nts, dart, resolved }, 'Samsung Electronics Sales');
     expect(first.candidates[0].business_number).toBe('1111111111');
-    await searchBusinesses({ loadIndex, nts, dart, resolved }, 'Samsung Electronics Sales');
+    await searchBusinesses({ loadIndex: load, nts, dart, resolved }, 'Samsung Electronics Sales');
     expect(calls).toEqual(['00252074']); // second search used the memo
   });
 
@@ -102,7 +110,7 @@ describe('lazy number resolution', () => {
         throw new Error('DART 020 rate limited');
       },
     } as DartClient;
-    const out = await searchBusinesses({ loadIndex, nts, dart }, 'Samsung Electronics Sales');
+    const out = await searchBusinesses({ loadIndex: freshLoader(), nts, dart }, 'Samsung Electronics Sales');
     expect(out.candidates[0].name).toBe('삼성전자판매');
     expect(out.candidates[0].business_number).toBeNull();
   });

@@ -20,7 +20,14 @@
 import type { DartClient } from './dart.js';
 import type { NtsClient } from './nts.js';
 import { buildStatusResult, type BusinessStatus, type TaxType } from './normalize.js';
-import { disambiguationNote, searchIndex, type Candidate, type NameIndexEntry } from './name-index.js';
+import {
+  disambiguationNote,
+  prepareIndex,
+  searchPrepared,
+  type Candidate,
+  type NameIndexEntry,
+  type PreparedIndex,
+} from './name-index.js';
 
 export interface SearchCandidate {
   business_number: string | null;
@@ -47,7 +54,10 @@ export interface SearchResponse {
 }
 
 export interface SearchDeps {
-  /** Loads the index once; the caller decides how to memoize. */
+  /**
+   * Loads the index once; the caller decides how to memoize. The result is
+   * normalized once per process (prepareIndex) rather than per query.
+   */
   loadIndex: () => Promise<NameIndexEntry[]>;
   nts: NtsClient;
   /** Optional: without it, candidates missing a number stay unresolved. */
@@ -116,8 +126,8 @@ export async function searchBusinesses(
   query: string,
   opts: SearchOptions = {},
 ): Promise<SearchResponse> {
-  const index = await deps.loadIndex();
-  const ranked = searchIndex(index, query, { limit: opts.limit ?? 5 });
+  const prepared = await prepare(deps);
+  const ranked = searchPrepared(prepared, query, { limit: opts.limit ?? 5 });
   if (!ranked.length) {
     // An empty result must read as an answer, not a malfunction: an agent
     // that cannot tell "no such company" from "the lookup broke" will either
@@ -166,6 +176,19 @@ export async function searchBusinesses(
     ...(note ? { note } : {}),
     ...(opts.full ? { source: 'Korea National Tax Service (NTS), DART, Public Procurement Service' } : {}),
   };
+}
+
+/** Normalizes the loaded index once per process, keyed on the loader. */
+const preparedByLoader = new WeakMap<object, Promise<PreparedIndex>>();
+
+async function prepare(deps: SearchDeps): Promise<PreparedIndex> {
+  const key = deps.loadIndex as unknown as object;
+  let pending = preparedByLoader.get(key);
+  if (!pending) {
+    pending = deps.loadIndex().then(prepareIndex);
+    preparedByLoader.set(key, pending);
+  }
+  return pending;
 }
 
 /** Memoizing loader so the index is read from storage once per process. */
