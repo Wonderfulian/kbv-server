@@ -30,6 +30,14 @@ const ROUTES = {
     url: `${BASE}/v1/business/124-81-00998/status`,
     init: { method: 'GET' },
   },
+  search: {
+    label: 'search (exact $0.02)',
+    // Paying this route serves two purposes: it proves the paid tier returns
+    // more than the free one, and a settled call is what gets the route into
+    // the Bazaar catalog.
+    url: `${BASE}/v1/business/search?q=${encodeURIComponent('Samsung Electronics')}`,
+    init: { method: 'GET' },
+  },
   verify: {
     label: 'verify (exact $0.05)',
     url: `${BASE}/v1/business/verify`,
