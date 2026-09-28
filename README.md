@@ -2,7 +2,11 @@
 
 [![M8ven Score](https://m8ven.ai/badge/mcp/wonderfulian-kbv-server-nnj5uy?v=59f4f9779da2cd9d5f2a99ff46cf1436)](https://m8ven.ai/mcp/wonderfulian-kbv-server-nnj5uy)
 
-**KBV is a hosted MCP server that verifies Korean businesses in real time — 10 free calls/day, then pay-per-call (x402).** Give it a 10-digit Korean business registration number (사업자등록번호) and it returns the registration status (active / suspended / closed), tax type, and — optionally — whether the number matches a representative name and opening date. Data comes live from the Korea National Tax Service (NTS) and is returned as clean, English-normalized JSON.
+**KBV is a hosted MCP server that finds and verifies Korean businesses in real time — 10 free calls/day, then pay-per-call (x402).**
+
+**You only need the company name.** Search `"Samsung Electronics"` — in English or Korean — and KBV returns the matching companies with their 10-digit business registration numbers (사업자등록번호), ranked by confidence. That matters because every other Korean business API assumes you already have the number, which a foreign agent almost never does. The index covers **940,000 companies**: every DART disclosure filer (with English names) plus every vendor registered for public procurement, so small businesses are in it too, not just conglomerates.
+
+With a number in hand, KBV returns registration status (active / suspended / closed), tax type, and — optionally — whether the number matches a representative name and opening date. Data comes live from the Korea National Tax Service (NTS) and is returned as clean, English-normalized JSON.
 
 No account, no API key, no installation — connect any MCP-capable agent to one URL:
 
@@ -21,8 +25,9 @@ Built for AI agents and developers doing KYB / due-diligence on Korean companies
 | Health check | `GET https://kbv-server-f7vfitmlkq-du.a.run.app/health` → `{"ok":true}` |
 | Authentication | None required |
 | Price | **10 free calls/day** per IP, then pay-per-call via x402 ($0.02–$0.05) — see [Pricing](#pricing) |
-| Tools | `check_korean_business_status`, `check_korean_business_batch`, `verify_korean_business` |
-| REST API | `GET /v1/business/{number}/status` · `POST /v1/business/verify` · `POST /v1/business/batch` — see [REST API](#rest-api) |
+| Tools | `find_korean_business`, `check_korean_business_status`, `check_korean_business_batch`, `verify_korean_business` |
+| REST API | `GET /v1/business/search` · `GET /v1/business/{number}/status` · `POST /v1/business/verify` · `POST /v1/business/batch` — see [REST API](#rest-api) |
+| Name index | 940,000 companies — DART disclosure filers (English names included) + registered public-procurement vendors |
 | Data source | Korea National Tax Service (국세청), official open-data API — queried live per request |
 | Data license | Korean government open data, **no usage restrictions** (이용허락범위 제한 없음) |
 | Privacy | KBV logs no query contents; numbers in GET URLs reach cloud access logs (14-day retention) — see [Privacy](#privacy) |
@@ -67,6 +72,48 @@ Add to `.cursor/mcp.json` (project) or `~/.cursor/mcp.json` (global):
 Use transport **Streamable HTTP** with the endpoint above. Clients must send `Accept: application/json, text/event-stream` (standard MCP clients do this automatically). Opening `/mcp` in a browser returns `Method not allowed` by design — browsers send `GET`, MCP uses `POST`. Use `/health` for a visual liveness check.
 
 ## Tools
+
+### `find_korean_business`
+
+Find a company by name when you do not know its registration number — the starting point for everything else here.
+
+**Input:**
+
+```json
+{ "name": "Samsung Electronics" }
+```
+
+**Output** (real example, abbreviated) — candidates, never one confident guess:
+
+```json
+{
+  "query": "Samsung Electronics",
+  "candidates": [
+    {
+      "business_number": "1248100998",
+      "name": "삼성전자",
+      "name_en": "SAMSUNG ELECTRONICS CO,.LTD",
+      "confidence": 1,
+      "match": { "type": "exact", "field": "name_en" },
+      "evidence": { "status": "active", "tax_type": "general", "listed": true }
+    },
+    {
+      "business_number": "6178117517",
+      "name": "삼성전자판매",
+      "confidence": 0.75,
+      "match": { "type": "prefix", "field": "name" },
+      "evidence": { "status": "active", "tax_type": "general", "listed": false }
+    }
+  ],
+  "note": "4 companies match this name equally well; they are distinct legal entities. Compare the evidence fields before acting."
+}
+```
+
+- **Korean or English.** Legal-form noise is ignored: `Samsung Electronics`, `SAMSUNG ELECTRONICS CO,.LTD` and `삼성전자(주)` all match the same company.
+- **`confidence`** reflects how the name matched (`exact` > `prefix` > `contains`), nudged by source and listing status. `match` tells you which field matched, so the score is never a black box.
+- **`evidence`** is what separates similarly named companies: live registration status, tax type, region (city/district), and whether the company is listed.
+- **A name can be ambiguous** — `"Samsung Electronics"` legitimately matches four distinct legal entities. KBV returns them all with a `note` rather than picking one.
+- **No match returns `candidates: []` with a note saying so.** That is an answer, not an error: a lookup failure returns HTTP 503 with an `error` field instead.
 
 ### `check_korean_business_status`
 
@@ -171,6 +218,10 @@ Verify that a business registration number matches the provided representative n
 The same three operations are available as plain HTTP endpoints — same JSON schemas as the MCP tools, no auth. **Append `?free=1` to use the daily free tier** (10 lookups per IP per day); without the flag, unpaid requests return `402` with x402 payment requirements:
 
 ```bash
+# Find a company by name — the free tier returns names, numbers and confidence
+curl -G "https://kbv-server-f7vfitmlkq-du.a.run.app/v1/business/search" \
+  --data-urlencode "q=Samsung Electronics" --data-urlencode "free=1"
+
 # Registration status (hyphens in the number are fine)
 curl "https://kbv-server-f7vfitmlkq-du.a.run.app/v1/business/124-81-00998/status?free=1"
 
@@ -216,7 +267,9 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 ## Pricing
 
 - **Free tier: 10 lookups per IP per day** (a batch call counts one per number), resetting at 00:00 UTC. No account or key is needed. MCP tools use it automatically; REST calls opt in by appending **`?free=1`** — without the flag, REST answers `402` with x402 payment requirements. MCP and REST share the same counter.
+- **Finding is free, confirming is paid.** `GET /v1/business/search?q=…&free=1` returns names, business numbers and confidence within the free tier — an agent that only knows a company name can always reach a number. The paid call adds the `evidence` fields (status, tax type, region, listing) that separate similarly named companies.
 - Beyond the free tier, the REST endpoints are **pay-per-call via the [x402](https://www.x402.org/) protocol** (USDC on Base mainnet, agent-payable — no signup):
+  - `GET /v1/business/search` — **$0.02** (candidates with evidence)
   - `GET /v1/business/{number}/status` — **$0.02**
   - `POST /v1/business/verify` — **$0.05**
   - `POST /v1/business/batch` — **$0.02 per number** (authorize up to $2.00, settled at actual usage)
@@ -224,6 +277,10 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 - Fair use: the upstream NTS quota is shared; the free tier keeps light usage free while heavy traffic moves to paid calls.
 
 ## FAQ
+
+**I only know the company's name — can I still use this?** Yes, and that is the point of `find_korean_business` (or `GET /v1/business/search`). Give it a name in English or Korean and it returns the matching companies with their registration numbers, ranked by confidence. Every other tool here needs the number; this is how you get it.
+
+**Does name search cover small companies, or only conglomerates?** Both. The index combines DART disclosure filers (~119k, nearly all with English names) with every vendor registered for public procurement (~821k), which is where small and mid-sized Korean companies appear.
 
 **What is a Korean business registration number?** A 10-digit identifier (사업자등록번호, often written `123-45-67890`) issued by the Korea National Tax Service to every registered business in South Korea.
 

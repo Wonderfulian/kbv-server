@@ -1,6 +1,6 @@
 # KBV 디렉토리 제출 키트
 
-> 마지막 업데이트: 2026-09-04 (가격 문구: "free during pilot" → "10 free calls/day, then pay-per-call (x402)")
+> 마지막 업데이트: 2026-09-28 (이름 검색 추가 — 최대 차별점이므로 모든 카피 맨 앞에 배치)
 > MCP 디렉토리 등록에 쓰는 공통 자료 모음입니다. 영문 카피는 아래 블록을 그대로 복사해 쓰세요.
 
 ## 공통 제출 자료 (영문)
@@ -10,26 +10,32 @@
 **One-liner** (공식 레지스트리 100자 제한 대응):
 
 ```
-Real-time Korean business verification via NTS. 10 free calls/day, then pay-per-call (x402).
+Find Korean companies by name, then verify them via NTS. 10 free calls/day, then pay-per-call (x402).
 ```
 
 **Short blurb** (~160자):
 
 ```
-Verify any Korean company by its 10-digit business registration number: active/closed status, tax type, and KYB identity match. Live NTS data, no API key, one URL.
+Search 940k Korean companies by name (English or Korean) to get their registration number, then check status, tax type and KYB identity match. Live NTS data, no API key, one URL.
 ```
 
 **Long description**:
 
 ```
-Korea Business Verify (KBV) is a hosted MCP server — 10 free calls/day, then pay-per-call via x402 — that verifies Korean businesses in real time. Give it a 10-digit Korean business registration number (사업자등록번호) and it returns the registration status (active / suspended / closed), tax type, and — optionally — whether the number matches a representative name and opening date (KYB identity check). Data comes live from the Korea National Tax Service (NTS) official open-data API and is returned as clean, English-normalized JSON. No account, no API key, no installation — connect any MCP-capable agent to one URL.
+Korea Business Verify (KBV) is a hosted MCP server — 10 free calls/day, then pay-per-call via x402 — that finds and verifies Korean businesses in real time.
+
+You only need the company name. Search "Samsung Electronics" in English or Korean and KBV returns the matching companies with their 10-digit registration numbers (사업자등록번호), ranked by confidence with the evidence to tell them apart. Every other Korean business API assumes you already have that number, which a foreign agent rarely does. The index covers 940,000 companies: all DART disclosure filers (English names included) plus every registered public-procurement vendor, so small businesses are covered too.
+
+With a number in hand it returns registration status (active / suspended / closed), tax type, and — optionally — whether the number matches a representative name and opening date (KYB identity check). Data comes live from the Korea National Tax Service (NTS) official open-data API as clean, English-normalized JSON. No account, no API key, no installation — connect any MCP-capable agent to one URL.
 
 Tools:
+- find_korean_business — company name (English or Korean) -> registration number, ranked candidates with evidence
 - check_korean_business_status — registration status + tax type by business number
 - check_korean_business_batch — up to 100 numbers in one call, order preserved, with summary
 - verify_korean_business — KYB identity match (number + representative name + opening date, optional address) plus current status
 
 Example prompts:
+- "Find the Korean business registration number for Samsung Electronics."
 - "Check the status of Korean business 124-81-00998."
 - "Verify that Korean business 214-87-12345 belongs to 홍길동, opened 2015-03-02."
 
@@ -105,16 +111,18 @@ business, verification, kyb, finance, government, korea, api, due-diligence
 **Transport:** Streamable HTTP
 **Authentication:** none — public, no API key required
 
-**Description:** Verify any Korean company by its 10-digit business registration number (사업자등록번호): active/closed status, tax type, and KYB identity match. Data comes live from the Korea National Tax Service (NTS) official open-data API and is returned as clean, English-normalized JSON. No account, no API key, no installation — 10 free calls/day, then pay-per-call via x402.
+**Description:** Find a Korean company by name (English or Korean) to get its 10-digit business registration number (사업자등록번호), then check active/closed status, tax type, and KYB identity match. Data comes live from the Korea National Tax Service (NTS) official open-data API and is returned as clean, English-normalized JSON. No account, no API key, no installation — 10 free calls/day, then pay-per-call via x402.
 
 ### Tools
 
+- `find_korean_business` — company name (English or Korean) → registration number; ranked candidates with confidence and evidence
 - `check_korean_business_status` — registration status (active / suspended / closed / not_registered) + tax type by business number
 - `check_korean_business_batch` — up to 100 numbers in one call, order preserved, with summary
 - `verify_korean_business` — KYB identity match (number + representative name + opening date, optional address) plus current status
 
 ### Example prompts
 
+- "Find the Korean business registration number for Samsung Electronics."
 - "Check the status of Korean business 124-81-00998."
 - "Verify that Korean business 214-87-12345 belongs to 홍길동, opened 2015-03-02."
 
@@ -152,7 +160,7 @@ Please list on https://mcp.so as a remote Streamable HTTP server.
 1. 로그인된 브라우저로 https://github.com/darjeeling/awesome-mcp-korea/edit/main/README.md 열기 → "Fork this repository" 안내가 나오면 수락 (자동 포크)
 2. `### 📊 Public Data` 섹션(177행 부근)에서 `data-go-mcp-servers` 항목 **다음 줄**(알파벳 순)에 아래 한 줄 추가 — 기존 항목들과 같은 형식(레포명 굵게 + `–` + 한국어 설명):
    ```
-   **[kbv-server](https://github.com/Wonderfulian/kbv-server)** – 국세청 API 기반 사업자등록 상태조회·진위확인(KYB) 원격 MCP 서버입니다. 설치·API 키 없이 URL 하나로 연결하며, 하루 10회 무료 후 x402 종량 과금입니다.
+   **[kbv-server](https://github.com/Wonderfulian/kbv-server)** – 회사명(국문·영문)으로 사업자등록번호를 찾고 국세청 API로 상태조회·진위확인(KYB)까지 하는 원격 MCP 서버입니다. 94만 개 기업 색인(DART + 나라장터)을 갖췄고, 설치·API 키 없이 URL 하나로 연결하며, 하루 10회 무료 후 x402 종량 과금입니다.
    ```
 3. **Commit changes** → **Create pull request** (제목 예: `Add Korea Business Verify (KBV)`)
 - [x] **PR 생성됨** (2026-09-07)  - [ ] 병합됨 (대기)
