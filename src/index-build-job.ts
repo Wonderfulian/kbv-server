@@ -59,22 +59,47 @@ export interface EnrichResult {
   failed: number;
 }
 
-/** Resolves business numbers in place, tolerating per-company failure. */
+/**
+ * Resolves business numbers in place, tolerating per-company failure.
+ *
+ * DART tolerates roughly a thousand rapid lookups and then refuses the
+ * connection outright — the first unpaced run resolved 979 and then failed
+ * 13,999 times with a bare "fetch failed". So calls are paced, a refusal is
+ * retried once, and a long run of consecutive failures aborts the rest rather
+ * than burning an hour proving the same point.
+ */
 export async function enrich(
   dart: DartClient,
   targets: NameIndexEntry[],
   concurrency: number,
   log: (info: Record<string, unknown>) => void,
+  opts: { delayMs?: number; abortAfterConsecutiveFailures?: number } = {},
 ): Promise<EnrichResult> {
   const result: EnrichResult = { attempted: targets.length, resolved: 0, missing: 0, failed: 0 };
+  const delayMs = opts.delayMs ?? 0;
+  const abortAfter = opts.abortAfterConsecutiveFailures ?? 50;
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   let cursor = 0;
+  let consecutiveFailures = 0;
+  let aborted = false;
+
+  async function attempt(corpCode: string): Promise<string | null> {
+    try {
+      return await dart.fetchBusinessNumber(corpCode);
+    } catch {
+      await sleep(1000);
+      return dart.fetchBusinessNumber(corpCode); // one retry; throws on failure
+    }
+  }
 
   async function worker(): Promise<void> {
     for (;;) {
+      if (aborted) return;
       const entry = targets[cursor++];
       if (!entry) return;
       try {
-        const number = await dart.fetchBusinessNumber(entry.corp_code as string);
+        const number = await attempt(entry.corp_code as string);
+        consecutiveFailures = 0;
         if (number) {
           entry.business_number = number;
           result.resolved++;
@@ -83,8 +108,15 @@ export async function enrich(
         }
       } catch (err) {
         result.failed++;
+        consecutiveFailures++;
         log({ event: 'index_enrich_failed', corp_code: entry.corp_code, error: (err as Error).message });
+        if (consecutiveFailures >= abortAfter) {
+          aborted = true;
+          log({ event: 'index_enrich_aborted', after: result.resolved + result.missing, consecutiveFailures });
+          return;
+        }
       }
+      if (delayMs) await sleep(delayMs);
     }
   }
 
@@ -97,6 +129,8 @@ export async function buildIndex(deps: {
   store: NameIndexStore;
   enrichLimit: number;
   concurrency: number;
+  /** Pause between lookups per worker — DART refuses unpaced bursts. */
+  delayMs?: number;
   log?: (info: Record<string, unknown>) => void;
 }): Promise<Record<string, unknown>> {
   const log = deps.log ?? (() => {});
@@ -105,7 +139,7 @@ export async function buildIndex(deps: {
   const merged = mergeIndex(existing, corps);
 
   const targets = selectForEnrichment(merged, deps.enrichLimit);
-  const enriched = await enrich(deps.dart, targets, deps.concurrency, log);
+  const enriched = await enrich(deps.dart, targets, deps.concurrency, log, { delayMs: deps.delayMs ?? 0 });
   await deps.store.write(merged);
 
   const withNumber = merged.filter((e) => e.business_number).length;
@@ -143,6 +177,7 @@ if (process.env.VITEST === undefined && isMainModule(import.meta.url)) {
       dart: createDartClient({ apiKey }),
       store: bucket ? new GcsNameIndexStore(bucket) : new LocalNameIndexStore(dir as string),
       enrichLimit: Number(process.env.DART_ENRICH_LIMIT ?? 1000),
+      delayMs: Number(process.env.DART_ENRICH_DELAY_MS ?? 0),
       concurrency: Number(process.env.DART_ENRICH_CONCURRENCY ?? 4),
       log: (info) => console.log(JSON.stringify(info)),
     });
