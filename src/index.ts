@@ -11,6 +11,7 @@ import { createCache } from './cache.js';
 import { createDartClient } from './dart.js';
 import { GcsNameIndexStore } from './name-index-store.js';
 import { createNtsClient } from './nts.js';
+import { createSanctionsLookup, type SanctionsFile } from './sanctions.js';
 import { memoizeIndex, searchBusinesses } from './search.js';
 import type { Deps } from './service.js';
 
@@ -53,6 +54,22 @@ const search = indexBucket
     })()
   : undefined;
 
+/**
+ * Debarment screening for the batch endpoint, from the same bucket. Loaded
+ * lazily on first use: it is a few hundred rows, but a deployment that only
+ * serves single lookups should not read it at all.
+ */
+const sanctions = indexBucket
+  ? createSanctionsLookup(async () => {
+      const started = Date.now();
+      const file = await new GcsNameIndexStore(indexBucket).readJson<SanctionsFile>('sanctions/current.json');
+      console.log(
+        JSON.stringify({ event: 'sanctions_loaded', records: file?.sanctions.length ?? 0, ms: Date.now() - started }),
+      );
+      return file;
+    })
+  : undefined;
+
 // Process-wide singletons: the cache must outlive per-request MCP servers.
 const deps: Deps = {
   cache: createCache(),
@@ -60,8 +77,9 @@ const deps: Deps = {
   // Metrics only — no business numbers or names ever reach the logs.
   log: (info) => console.log(JSON.stringify({ event: 'tool_call', ...info })),
   ...(search ? { search } : {}),
+  ...(sanctions ? { sanctions } : {}),
 };
-console.log(JSON.stringify({ event: 'search_config', enabled: Boolean(search), dart_enrichment: Boolean(dartKey) }));
+console.log(JSON.stringify({ event: 'search_config', enabled: Boolean(search), dart_enrichment: Boolean(dartKey), sanctions: Boolean(sanctions) }));
 
 // Payments are OFF unless a receiving address is configured (address only —
 // private keys and seed phrases never touch this server).

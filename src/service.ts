@@ -9,6 +9,7 @@
  */
 
 import { statusKey, verifyKey, type KbvCache } from './cache.js';
+import type { SanctionsLookup, SanctionView } from './sanctions.js';
 import type { SearchResponse } from './search.js';
 import {
   buildStatusResult,
@@ -39,6 +40,12 @@ export interface Deps {
    * pretending to have an empty index.
    */
   search?: (query: string, opts: { full: boolean; limit?: number }) => Promise<SearchResponse>;
+  /**
+   * Debarment lookup for batch screening. Absent on a server without the
+   * data, which then omits the field entirely rather than reporting an empty
+   * array — "not checked" and "none found" must stay distinguishable.
+   */
+  sanctions?: SanctionsLookup;
 }
 
 export interface ServiceError {
@@ -69,10 +76,15 @@ export interface BatchSummary {
   suspended: number;
   closed: number;
   not_registered: number;
+  /** Entries under a debarment in force today; absent when unchecked. */
+  sanctioned?: number;
 }
 
+/** A batch row: registration status, plus debarments when available. */
+export type BatchEntry = StatusResult & { sanctions?: SanctionView[] };
+
 export interface BatchResult {
-  results: StatusResult[];
+  results: BatchEntry[];
   summary: BatchSummary;
 }
 
@@ -229,9 +241,23 @@ export async function checkStatusBatch(
   }
 
   // One entry per input element, order preserved; duplicates share a result.
-  const results = normalized.map((bNo) => resultByNumber.get(bNo) as StatusResult);
+  let results: BatchEntry[] = normalized.map((bNo) => resultByNumber.get(bNo) as StatusResult);
   const summary: BatchSummary = { total: results.length, active: 0, suspended: 0, closed: 0, not_registered: 0 };
   for (const r of results) summary[r.status] += 1;
+
+  // Screening layer: a company can be active and still barred from public
+  // contracts, which is the answer a procurement list is really after.
+  if (deps.sanctions) {
+    try {
+      const found = await deps.sanctions([...new Set(normalized)]);
+      results = results.map((r) => ({ ...r, sanctions: found.get(r.business_number) ?? [] }));
+      summary.sanctioned = results.filter((r) => r.sanctions?.some((s) => s.active)).length;
+    } catch {
+      // Debarment data is an enrichment: losing it must not cost the caller
+      // the status answers they already paid for. The field stays absent,
+      // which reads as "not checked" rather than "none found".
+    }
+  }
   return done('ok', { outcome: 'ok', result: { results, summary } });
 }
 

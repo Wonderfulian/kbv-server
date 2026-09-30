@@ -131,11 +131,13 @@ export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
     {
       title: 'Batch check Korean business status',
       description:
-        'Check the registration status of up to 100 Korean businesses in a single call by their 10-digit ' +
-        'business registration numbers (사업자등록번호). Returns one status entry per input number (order ' +
-        'preserved) plus a summary count. Use this instead of repeated single checks when screening supplier ' +
-        'or customer lists. Recently checked numbers may be answered from a cache up to 24 hours old ' +
-        '(marked "cache": true). Data source: Korea National Tax Service.',
+        'Screen a list of up to 100 Korean businesses in a single call by their 10-digit business ' +
+        'registration numbers (사업자등록번호). Returns one entry per input number (order preserved) with ' +
+        'registration status, tax type, and any public-procurement debarment ("부정당업자 제재") on record — ' +
+        'a company can be perfectly active and still barred from public contracts. The summary counts how ' +
+        'many are currently debarred. Use this for supplier, vendor or customer list screening instead of ' +
+        'repeated single checks. Recently checked numbers may be answered from a cache up to 24 hours old ' +
+        '(marked "cache": true). Sources: Korea National Tax Service, Public Procurement Service.',
       annotations: LOOKUP_TOOL_ANNOTATIONS,
       inputSchema: {
         business_numbers: z
@@ -144,13 +146,32 @@ export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
           .describe('1-100 Korean business registration numbers; hyphens/spaces allowed'),
       },
       outputSchema: {
-        results: z.array(z.object(statusOutputShape)),
+        results: z.array(
+          z.object({
+            ...statusOutputShape,
+            // Absent when this server has no debarment data loaded; an empty
+            // array means screened and clear. The two are not the same.
+            sanctions: z
+              .array(
+                z.object({
+                  institution: z.string().optional(),
+                  law: z.string().optional(),
+                  begins_on: z.string().optional(),
+                  ends_on: z.string().optional(),
+                  status: z.string().optional(),
+                  active: z.boolean(),
+                }),
+              )
+              .optional(),
+          }),
+        ),
         summary: z.object({
           total: z.number(),
           active: z.number(),
           suspended: z.number(),
           closed: z.number(),
           not_registered: z.number(),
+          sanctioned: z.number().optional(),
         }),
       },
     },

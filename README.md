@@ -28,6 +28,7 @@ Built for AI agents and developers doing KYB / due-diligence on Korean companies
 | Tools | `find_korean_business`, `check_korean_business_status`, `check_korean_business_batch`, `verify_korean_business` |
 | REST API | `GET /v1/business/search` · `GET /v1/business/{number}/status` · `POST /v1/business/verify` · `POST /v1/business/batch` — see [REST API](#rest-api) |
 | Name index | 940,000 companies — DART disclosure filers (English names included) + registered public-procurement vendors |
+| Screening | Batch calls also return public-procurement debarments (부정당업자 제재) per company |
 | Data source | Korea National Tax Service (국세청), official open-data API — queried live per request |
 | Data license | Korean government open data, **no usage restrictions** (이용허락범위 제한 없음) |
 | Privacy | KBV logs no query contents; numbers in GET URLs reach cloud access logs (14-day retention) — see [Privacy](#privacy) |
@@ -172,6 +173,7 @@ Check **up to 100 businesses in a single call** — for screening supplier or cu
 }
 ```
 
+- Each entry also carries **`sanctions`** — public-procurement debarments (부정당업자 제재) on record for that company, with `active` marking one in force today. A company can be perfectly active and still barred from public contracts, and `summary.sanctioned` counts how many of your list are. An empty array means screened and clear; the field being **absent** means this server has no debarment data loaded — not the same thing.
 - The whole batch is answered with **one** upstream NTS query.
 - Numbers checked within the last 24 hours may be served from cache (marked `"cache": true` with their original `checked_at`) and are excluded from the upstream query.
 - More than 100 numbers, or any malformed number, is rejected **before** anything is queried.
@@ -288,7 +290,7 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 
 **Can I verify a Korean company's identity before a transaction (KYB)?** Yes — call `verify_korean_business` with the number, representative name, and opening date; `identity_match: true` means the NTS confirms all three match.
 
-**Can I screen a whole supplier list at once?** Yes — `check_korean_business_batch` (or `POST /v1/business/batch`) takes up to 100 numbers per call and returns per-number results plus a summary.
+**Can I screen a whole supplier list at once?** Yes — `check_korean_business_batch` (or `POST /v1/business/batch`) takes up to 100 numbers per call and returns per-number registration status **and any public-procurement debarment**, plus a summary counting how many are currently barred. That combination is the actual screening question: a supplier can be operating normally and still be barred from public contracts.
 
 **Do I need an API key?** No. Connect to the MCP URL and call the tools, or call the REST endpoints directly.
 

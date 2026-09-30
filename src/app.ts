@@ -68,7 +68,7 @@ const BAZAAR_VERIFY = {
 
 const BAZAAR_BATCH = {
   serviceName: BAZAAR_SERVICE_NAME,
-  tags: ['supplier-screening', 'bulk-verification', 'batch-kyb', 'onboarding', 'korea'],
+  tags: ['supplier-screening', 'debarment-check', 'sanctions-screening', 'batch-kyb', 'korea'],
 };
 
 const BAZAAR_SEARCH = {
@@ -221,9 +221,10 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
         // the actual usage ($0.02 x numbers) via setSettlementOverrides.
         accepts: [{ scheme: 'upto', price: '$2.00', network, payTo }],
         description:
-          'Bulk supplier list screening: check up to 100 companies at once, $0.02 per number, with per-number ' +
-          'results and a summary. Batch KYB screening for vendor, customer and supplier onboarding lists. ' +
-          'Live Korean National Tax Service (NTS) data.',
+          'Screen a supplier list against two registries at once: check up to 100 companies per call, $0.02 ' +
+          'per number, and get registration status plus any public-procurement debarment on record. A ' +
+          'company can be active and still barred from public contracts, so the summary counts how many ' +
+          'are currently debarred. Live Korean National Tax Service and Public Procurement Service data.',
         mimeType: 'application/json',
         ...BAZAAR_BATCH,
         extensions: {
