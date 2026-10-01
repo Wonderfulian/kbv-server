@@ -27,6 +27,8 @@ import express from 'express';
 import { buildMcpServer } from './mcp.js';
 import { createQuota, type Quota } from './quota.js';
 import { buildRestRouter, PRICE_PER_LOOKUP_ATOMIC } from './rest.js';
+import { buildX402Manifest, LLMS_TXT } from './discovery.js';
+import { isTestBusinessNumber } from './normalize.js';
 import type { Deps } from './service.js';
 
 export const MAX_BATCH_PRICE_ATOMIC = 100 * PRICE_PER_LOOKUP_ATOMIC; // $2.00 ceiling for "upto"
@@ -44,7 +46,8 @@ export interface X402Options {
   facilitatorClient?: FacilitatorClient;
 }
 
-const STATUS_PATH = /^\/v1\/business\/[^/]+\/status$/;
+/** Capturing group 1 is the raw number, used for the test-number exemption. */
+const STATUS_PATH = /^\/v1\/business\/([^/]+)\/status$/;
 
 /**
  * Bazaar catalog metadata. The service name is shared; tags and descriptions
@@ -112,12 +115,19 @@ function meteredUnits(req: express.Request): number | null {
   // Search is metered like a lookup, but its free tier returns a usable
   // answer (identity + confidence) rather than a 402 — see rest.ts.
   if (req.method === 'GET' && req.path === '/v1/business/search') return 1;
-  if (req.method === 'GET' && STATUS_PATH.test(req.path)) return 1;
+  if (req.method === 'GET' && STATUS_PATH.test(req.path)) {
+    // The documented test number is free and unlimited, so wiring up a client
+    // does not cost a developer their ten daily calls.
+    return isTestBusinessNumber(STATUS_PATH.exec(req.path)?.[1]) ? null : 1;
+  }
   if (req.method === 'POST' && req.path === '/v1/business/verify') return 1;
   if (req.method === 'POST' && req.path === '/v1/business/batch') {
     const nums = (req.body as { business_numbers?: unknown } | undefined)?.business_numbers;
     if (!Array.isArray(nums) || nums.length === 0 || nums.length > 100) return 0;
-    return nums.length;
+    // Test numbers in a batch are free too; a batch of only test numbers is
+    // unmetered rather than charged as zero (which would read as invalid).
+    const billable = nums.filter((x) => !isTestBusinessNumber(typeof x === 'string' ? x : undefined)).length;
+    return billable === 0 ? null : billable;
   }
   return null;
 }
@@ -133,6 +143,13 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
   // on run.app URLs and returns its own 404 before the request reaches us.
   app.get('/health', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  // Discovery documents, free and unmetered — crawlers were getting 404s for
+  // both. Registered before the payment middleware so they can never end up
+  // behind a paywall, which would defeat their purpose.
+  app.get('/llms.txt', (_req, res) => {
+    res.type('text/plain; charset=utf-8').set('Cache-Control', 'public, max-age=3600').send(LLMS_TXT);
   });
 
   let quota: Quota | undefined;
@@ -257,6 +274,13 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
         },
       },
     };
+    // The manifest is generated from this very route table, so a price can
+    // never drift between a 402 response and what discovery advertises.
+    const manifest = buildX402Manifest({ routes, updated: new Date().toISOString() });
+    app.get('/.well-known/x402', (_req, res) => {
+      res.type('application/json').set('Cache-Control', 'public, max-age=3600').json(manifest);
+    });
+
     const facilitatorClient = x402.facilitatorClient ?? new HTTPFacilitatorClient({ url: x402.facilitatorUrl });
     const resourceServer = new x402ResourceServer(facilitatorClient)
       .register(network, new ExactEvmScheme())

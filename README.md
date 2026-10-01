@@ -32,6 +32,7 @@ Built for AI agents and developers doing KYB / due-diligence on Korean companies
 | Data source | Korea National Tax Service (국세청), official open-data API — queried live per request |
 | Data license | Korean government open data, **no usage restrictions** (이용허락범위 제한 없음) |
 | Privacy | KBV logs no query contents; numbers in GET URLs reach cloud access logs (14-day retention) — see [Privacy](#privacy) |
+| Discovery | [`/.well-known/x402`](https://kbv-server-f7vfitmlkq-du.a.run.app/.well-known/x402) · [`/llms.txt`](https://kbv-server-f7vfitmlkq-du.a.run.app/llms.txt) |
 | Region | Google Cloud Run, Seoul (asia-northeast3) |
 
 ## Connect your agent
@@ -268,6 +269,7 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 
 ## Pricing
 
+- **The number `124-81-00998` is free and unlimited.** Samsung Electronics — a real, listed company — is exempt from the daily allowance, so wiring up a client costs you nothing. Live NTS data, not a fixture.
 - **Free tier: 10 lookups per IP per day** (a batch call counts one per number), resetting at 00:00 UTC. No account or key is needed. MCP tools use it automatically; REST calls opt in by appending **`?free=1`** — without the flag, REST answers `402` with x402 payment requirements. MCP and REST share the same counter.
 - **Finding is free, confirming is paid.** `GET /v1/business/search?q=…&free=1` returns names, business numbers and confidence within the free tier — an agent that only knows a company name can always reach a number. The paid call adds the `evidence` fields (status, tax type, region, listing) that separate similarly named companies.
 - Beyond the free tier, the REST endpoints are **pay-per-call via the [x402](https://www.x402.org/) protocol** (USDC on Base mainnet, agent-payable — no signup):
@@ -291,6 +293,8 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 **Can I verify a Korean company's identity before a transaction (KYB)?** Yes — call `verify_korean_business` with the number, representative name, and opening date; `identity_match: true` means the NTS confirms all three match.
 
 **Can I screen a whole supplier list at once?** Yes — `check_korean_business_batch` (or `POST /v1/business/batch`) takes up to 100 numbers per call and returns per-number registration status **and any public-procurement debarment**, plus a summary counting how many are currently barred. That combination is the actual screening question: a supplier can be operating normally and still be barred from public contracts.
+
+**Can I test without burning my free calls?** Yes. Queries for `124-81-00998` (Samsung Electronics) never count against the daily allowance, on any endpoint or tool — including inside a batch, where only the other numbers are billed. The response is live NTS data.
 
 **Do I need an API key?** No. Connect to the MCP URL and call the tools, or call the REST endpoints directly.
 

@@ -18,6 +18,22 @@ export type TaxType = 'general' | 'simplified' | 'exempt' | 'non_profit' | 'unkn
 
 export const SOURCE = 'Korea National Tax Service (NTS)' as const;
 
+/**
+ * Documented integration-test number, exempt from the daily free tier.
+ *
+ * Asked for on dev.to: developers were burning their ten free calls just
+ * wiring a client up. This is Samsung Electronics — a real, listed company
+ * whose record is public and stable — so the exemption costs nothing in
+ * honesty: the answer is live NTS data, not a fixture. One number, cached for
+ * 24 hours, with no scraping value.
+ */
+export const TEST_BUSINESS_NUMBER = '1248100998';
+
+/** Digit-only comparison, safe on unvalidated input (never throws). */
+export function isTestBusinessNumber(raw: string | undefined): boolean {
+  return (raw ?? '').replace(/\D/g, '') === TEST_BUSINESS_NUMBER;
+}
+
 /** Output schema of check_korean_business_status (DESIGN.md §6.1). */
 export interface StatusResult {
   business_number: string;

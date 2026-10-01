@@ -9,7 +9,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { SOURCE, type StatusResult, type VerifyResult } from './normalize.js';
+import { isTestBusinessNumber, SOURCE, TEST_BUSINESS_NUMBER, type StatusResult, type VerifyResult } from './normalize.js';
 import {
   checkStatus,
   checkStatusBatch,
@@ -110,7 +110,9 @@ export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
       description:
         'Check the registration status of a Korean business by its 10-digit business registration number ' +
         '(사업자등록번호). Returns whether the business is active, suspended, or closed, plus tax type. ' +
-        'Data source: Korea National Tax Service, real-time.',
+        'Data source: Korea National Tax Service, real-time. The number ' + TEST_BUSINESS_NUMBER + ' (Samsung ' +
+        'Electronics) is exempt from the daily free tier, so you can exercise this tool while building without ' +
+        'spending your allowance.',
       annotations: LOOKUP_TOOL_ANNOTATIONS,
       inputSchema: {
         business_number: z
@@ -120,7 +122,9 @@ export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
       outputSchema: statusOutputShape,
     },
     async ({ business_number }) => {
-      const gate = quotaGate('check_korean_business_status', 1);
+      // The documented test number is free here too, so an agent author can
+      // exercise the tool without spending the day's allowance.
+      const gate = quotaGate('check_korean_business_status', isTestBusinessNumber(business_number) ? 0 : 1);
       if (gate) return gate;
       return toToolResult(await checkStatus(deps, business_number));
     },
@@ -177,7 +181,8 @@ export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
     },
     async ({ business_numbers }) => {
       // Invalid sizes consume nothing — the service rejects them before any query.
-      const units = business_numbers.length <= 100 ? business_numbers.length : 0;
+      const billable = business_numbers.filter((n) => !isTestBusinessNumber(n)).length;
+      const units = business_numbers.length <= 100 ? billable : 0;
       const gate = quotaGate('check_korean_business_batch', units);
       if (gate) return gate;
       return toToolResult(await checkStatusBatch(deps, business_numbers));
