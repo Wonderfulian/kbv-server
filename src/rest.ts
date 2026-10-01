@@ -23,7 +23,7 @@ import {
   type Deps,
   type ServiceResult,
 } from './service.js';
-import type { StatusResult, VerifyResult } from './normalize.js';
+import { isTestBusinessNumber, type StatusResult, type VerifyResult } from './normalize.js';
 
 const HTTP_STATUS: Record<string, number> = {
   invalid_input: 400,
@@ -82,8 +82,12 @@ export function buildRestRouter(deps: Deps): Router {
     if (res.locals.paid === true) {
       // "upto" scheme: the client authorized the batch maximum; settle only
       // the actual usage — $0.02 per number, or nothing if the call failed.
-      const total = isServiceError(out) ? 0 : out.result.summary.total;
-      setSettlementOverrides(res, { amount: String(total * PRICE_PER_LOOKUP_ATOMIC) });
+      // Test numbers are free here as well: charging for one while exempting
+      // it from the free tier would be the same inconsistency in reverse.
+      const billable = isServiceError(out)
+        ? 0
+        : out.result.results.filter((r) => !isTestBusinessNumber(r.business_number)).length;
+      setSettlementOverrides(res, { amount: String(billable * PRICE_PER_LOOKUP_ATOMIC) });
     }
     send(res, out);
   });
