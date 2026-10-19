@@ -21,7 +21,7 @@
   "dependencies": {
     "@coinbase/x402": "^2.1.0",
     "@google-cloud/storage": "^8.2.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@x402/core": "^2.23.0",
     "@x402/evm": "^2.23.0",
     "@x402/express": "^2.23.0",
