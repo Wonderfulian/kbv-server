@@ -1,6 +1,6 @@
 # Korea Business Verify (KBV) — MCP Server
 
-[![M8ven Score](https://m8ven.ai/badge/mcp/wonderfulian-kbv-server-nnj5uy?v=59f4f9779da2cd9d5f2a99ff46cf1436)](https://m8ven.ai/mcp/wonderfulian-kbv-server-nnj5uy)
+[![M8ven Score](https://m8ven.ai/badge/mcp/wonderfulian/kbv-server)](https://m8ven.ai/mcp/wonderfulian/kbv-server?s=readme) [![M8ven Verified](https://m8ven.ai/badge/mcp/wonderfulian/kbv-server?variant=verified)](https://m8ven.ai/mcp/wonderfulian/kbv-server?s=readme)
 
 **KBV is a hosted MCP server that finds and verifies Korean businesses in real time — 10 free calls/day, then pay-per-call (x402).**
 
