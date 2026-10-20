@@ -143,8 +143,9 @@ Example:
 
 ## Privacy and data source
 
-- KBV's own logs never contain query contents. A number passed in a GET URL does appear in the cloud
-  provider's access log for 14 days; POST and MCP calls send inputs in the request body and are not logged.
+- KBV's own logs never contain query contents. A number or search term passed in a GET URL (status,
+  search) does appear in the cloud provider's access log for 14 days; POST and MCP calls send inputs in
+  the request body and are not logged.
 - Data source: Korea National Tax Service official open-data API, queried live per request. Name index from
   DART (Financial Supervisory Service) and the Public Procurement Service. Korean government open data,
   no usage restrictions.

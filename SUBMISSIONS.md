@@ -39,7 +39,7 @@ Example prompts:
 - "Check the status of Korean business 124-81-00998."
 - "Verify that Korean business 214-87-12345 belongs to 홍길동, opened 2015-03-02."
 
-Privacy: KBV logs no query contents (business numbers, names); a number passed in the GET status URL does appear in the cloud provider access log for 14 days, while POST and MCP calls send inputs in the request body and are not logged. Data license: Korean government open data, no usage restrictions. Pricing: 10 free calls/day per IP; beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
+Privacy: KBV logs no query contents (business numbers, names); a number or search term passed in a GET URL (status, search) does appear in the cloud provider access log for 14 days, while POST and MCP calls send inputs in the request body and are not logged. Data license: Korean government open data, no usage restrictions. Pricing: 10 free calls/day per IP; beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
 ```
 
 **Tags / categories**:
@@ -79,6 +79,8 @@ business, verification, kyb, finance, government, korea, api, due-diligence
 - [x] 제출함 (2026-08-25)  - [x] **등재 확인됨** (2026-08-25, 등재 페이지에서 실호출 검증까지 완료)
 
 ### 4. Smithery — 🧑 사람 ~10분 (웹 UI로 직접, API 키를 채팅에 붙일 필요 없음)
+
+> ⚠️ **2026-10-31 이후 이 절차는 무효.** Smithery가 연결 관리 서비스(run.tools·server.smithery.ai 프록시 URL, API·Connect·Toolbox, CLI·SDK, 계정)를 종료하고 공개 디렉터리(smithery.ai, Arcade.dev 기반)만 남긴다. 등재 `creativeyoungcho/kbv`의 연결 주소는 우리 URL이 아니라 Smithery 프록시 `https://kbv--creativeyoungcho.run.tools`였으므로(2026-10-20 확인, 401 인증 필요) **이 경로의 연결은 10/31에 끊긴다.** KBV 자체 URL(`https://kbv-server-f7vfitmlkq-du.a.run.app/mcp`)은 영향 없음.
 
 1. https://smithery.ai 가입 (GitHub 로그인 — Wonderfulian)
 2. https://smithery.ai/new 접속 → **URL 방식** 선택 → MCP URL `https://kbv-server-f7vfitmlkq-du.a.run.app/mcp` 붙여넣기
@@ -148,7 +150,7 @@ curl -s -X POST https://kbv-server-f7vfitmlkq-du.a.run.app/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
 
-Privacy: KBV logs no query contents (business numbers, names); a number passed in the GET status URL does appear in the cloud provider access log for 14 days, while POST and MCP calls send inputs in the request body and are not logged. Data license: Korean government open data, no usage restrictions. Pricing: 10 free calls/day per IP; beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
+Privacy: KBV logs no query contents (business numbers, names); a number or search term passed in a GET URL (status, search) does appear in the cloud provider access log for 14 days, while POST and MCP calls send inputs in the request body and are not logged. Data license: Korean government open data, no usage restrictions. Pricing: 10 free calls/day per IP; beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
 
 Please list on https://mcp.so as a remote Streamable HTTP server.
 ````
