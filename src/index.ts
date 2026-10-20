@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import { buildApp, type X402Options } from './app.js';
 import { createCache } from './cache.js';
 import { createDartClient } from './dart.js';
+import { HS_MASTER_PATH, HsMaster, type HsMasterFile } from './hs-master.js';
 import { GcsNameIndexStore } from './name-index-store.js';
 import { createNtsClient } from './nts.js';
 import { createSanctionsLookup, type SanctionsFile } from './sanctions.js';
@@ -70,6 +71,32 @@ const sanctions = indexBucket
     })
   : undefined;
 
+/**
+ * HS code master for import-requirements validation, from the same bucket.
+ * Loaded on first use (≈1.7 MB). A failed load is not cached, so the next
+ * request retries instead of the route staying down until a restart.
+ */
+let hsMasterLoad: Promise<HsMaster> | undefined;
+const hsMaster = indexBucket
+  ? () => {
+      hsMasterLoad ??= (async () => {
+        const started = Date.now();
+        const file = await new GcsNameIndexStore(indexBucket).readJson<HsMasterFile>(HS_MASTER_PATH);
+        if (!file) throw new Error(`${HS_MASTER_PATH} is missing from the index bucket`);
+        const master = new HsMaster(file);
+        console.log(
+          JSON.stringify({ event: 'hs_master_loaded', file_name: file.file_name, codes: master.size, ms: Date.now() - started }),
+        );
+        return master;
+      })().catch((err: unknown) => {
+        hsMasterLoad = undefined;
+        console.error(JSON.stringify({ event: 'hs_master_load_failed', error: (err as Error).message }));
+        throw err;
+      });
+      return hsMasterLoad;
+    }
+  : undefined;
+
 // Process-wide singletons: the cache must outlive per-request MCP servers.
 const deps: Deps = {
   cache: createCache(),
@@ -78,6 +105,9 @@ const deps: Deps = {
   log: (info) => console.log(JSON.stringify({ event: 'tool_call', ...info })),
   ...(search ? { search } : {}),
   ...(sanctions ? { sanctions } : {}),
+  ...(hsMaster
+    ? { hsMaster, hsLog: (info: Record<string, unknown>) => console.log(JSON.stringify({ event: 'hs_check', ...info })) }
+    : {}),
 };
 console.log(JSON.stringify({ event: 'search_config', enabled: Boolean(search), dart_enrichment: Boolean(dartKey), sanctions: Boolean(sanctions) }));
 
@@ -95,6 +125,8 @@ const x402: X402Options | undefined = payTo
       network: process.env.X402_NETWORK ?? 'eip155:84532', // Base Sepolia testnet
       dailyFreeTier: Number(process.env.FREE_TIER_DAILY ?? 10),
       facilitatorClient: cdpFacilitator ? new HTTPFacilitatorClient(cdpFacilitator) : undefined,
+      // Off until the import-requirements handler exists (TRADE-DESK stage 4).
+      tradeDesk: process.env.TRADE_DESK_ENABLED === '1',
     }
   : undefined;
 console.log(

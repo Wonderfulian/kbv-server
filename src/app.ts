@@ -28,8 +28,11 @@ import { buildMcpServer } from './mcp.js';
 import { createQuota, type Quota } from './quota.js';
 import { buildRestRouter, PRICE_PER_LOOKUP_ATOMIC } from './rest.js';
 import { buildX402Manifest, LLMS_TXT } from './discovery.js';
+import { hsGuard, IMPORT_REQUIREMENTS_PATH } from './hs-guard.js';
 import { isTestBusinessNumber } from './normalize.js';
 import type { Deps } from './service.js';
+
+const IMPORT_ROUTE_KEY = `GET ${IMPORT_REQUIREMENTS_PATH}` as const;
 
 export const MAX_BATCH_PRICE_ATOMIC = 100 * PRICE_PER_LOOKUP_ATOMIC; // $2.00 ceiling for "upto"
 
@@ -44,6 +47,12 @@ export interface X402Options {
   dailyFreeTier: number;
   /** Injection point for tests / custom facilitators; defaults to HTTP(facilitatorUrl). */
   facilitatorClient?: FacilitatorClient;
+  /**
+   * Lists the import-requirements route as paid. OFF in production until the
+   * route has a handler (TRADE-DESK stage 4) — a paid route without one would
+   * take money and then 404, and would be advertised in discovery meanwhile.
+   */
+  tradeDesk?: boolean;
 }
 
 /** Capturing group 1 is the raw number, used for the test-number exemption. */
@@ -79,6 +88,11 @@ const BAZAAR_SEARCH = {
   tags: ['find-company-by-name', 'company-search', 'name-to-id', 'entity-resolution', 'korea'],
 };
 
+const BAZAAR_IMPORT = {
+  serviceName: BAZAAR_SERVICE_NAME,
+  tags: ['korea-import', 'customs-requirements', 'import-compliance', 'hs-code', 'korea'],
+};
+
 /** Real response shape used in Bazaar discovery examples (Samsung Electronics, live lookup). */
 const STATUS_EXAMPLE = {
   business_number: '1248100998',
@@ -111,10 +125,12 @@ const SEARCH_EXAMPLE = {
  * Lookup units a request will consume from the free tier; null = unmetered
  * route, 0 = invalid input that the service will reject anyway (free).
  */
-function meteredUnits(req: express.Request): number | null {
+function meteredUnits(req: express.Request, tradeDesk: boolean): number | null {
   // Search is metered like a lookup, but its free tier returns a usable
   // answer (identity + confidence) rather than a 402 — see rest.ts.
   if (req.method === 'GET' && req.path === '/v1/business/search') return 1;
+  // Reached only with a validated code: hsGuard answers every other input first.
+  if (req.method === 'GET' && req.path === IMPORT_REQUIREMENTS_PATH) return tradeDesk ? 1 : null;
   if (req.method === 'GET' && STATUS_PATH.test(req.path)) {
     // The documented test number is free and unlimited, so wiring up a client
     // does not cost a developer their ten daily calls.
@@ -152,12 +168,38 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
     res.type('text/plain; charset=utf-8').set('Cache-Control', 'public, max-age=3600').send(LLMS_TXT);
   });
 
+  // HS code validation runs before the payment middleware below: an unknown
+  // code is refused free of charge and never reaches the upstream, whose
+  // answer to it would be indistinguishable from "no requirements".
+  if (deps.hsMaster) app.use(hsGuard({ loadMaster: deps.hsMaster, log: deps.hsLog }));
+
   let quota: Quota | undefined;
   if (x402) {
     quota = createQuota(x402.dailyFreeTier);
     const network = x402.network as Network;
     const payTo = x402.payTo;
-    const routes = {
+    const importRoute = {
+      accepts: [{ scheme: 'exact', price: '$0.03', network, payTo }],
+      description:
+        'Check what Korean import clearance requirements apply to a product by its HS code. Goods that ' +
+        'need an unmet approval are held or returned at Korean customs. Returns which statutes require ' +
+        'clearance, which agencies can approve and the certificate to obtain. Korea Customs Service data; ' +
+        'fact lookup only, not a legal customs determination.',
+      mimeType: 'application/json',
+      ...BAZAAR_IMPORT,
+      extensions: {
+        ...declareDiscoveryExtension({
+          input: { hs_code: '8516710000' },
+          inputSchema: {
+            properties: {
+              hs_code: { type: 'string', description: '10-digit Korean HS (HSK) code; dots/hyphens allowed' },
+            },
+            required: ['hs_code'],
+          },
+        }),
+      },
+    };
+    const baseRoutes = {
       'GET /v1/business/:brno/status': {
         accepts: [{ scheme: 'exact', price: '$0.02', network, payTo }],
         description:
@@ -274,6 +316,8 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
         },
       },
     };
+    // The import-requirements route is listed only behind the stage flag.
+    const routes = x402.tradeDesk ? { [IMPORT_ROUTE_KEY]: importRoute, ...baseRoutes } : baseRoutes;
     // The manifest is generated from this very route table, so a price can
     // never drift between a 402 response and what discovery advertises.
     const manifest = buildX402Manifest({ routes, updated: new Date().toISOString() });
@@ -291,7 +335,7 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
     const paid = paymentMiddleware(routes, resourceServer);
 
     app.use((req, res, next) => {
-      const units = meteredUnits(req);
+      const units = meteredUnits(req, x402.tradeDesk === true);
       if (units === null || units === 0) {
         next();
         return;

@@ -9,6 +9,8 @@
  */
 
 import { statusKey, verifyKey, type KbvCache } from './cache.js';
+import type { HsCheckOutcome } from './hs-guard.js';
+import type { HsMaster } from './hs-master.js';
 import type { SanctionsLookup, SanctionView } from './sanctions.js';
 import type { SearchResponse } from './search.js';
 import {
@@ -46,6 +48,13 @@ export interface Deps {
    * array — "not checked" and "none found" must stay distinguishable.
    */
   sanctions?: SanctionsLookup;
+  /**
+   * HS code master for the import-requirements route. Absent where no index
+   * bucket is configured; the route's validation then never mounts.
+   */
+  hsMaster?: () => Promise<HsMaster>;
+  /** Metrics for HS validation — outcome only, never the code. */
+  hsLog?: (info: { outcome: HsCheckOutcome; stale_master?: boolean }) => void;
 }
 
 export interface ServiceError {
