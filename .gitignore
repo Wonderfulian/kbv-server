@@ -28,6 +28,7 @@ Thumbs.db
 PROGRESS.md
 MONITORING.md
 PHASE2-PLAN*.md
+TRADE-DESK-SPEC*.md
 
 # Collected data artifacts (large; rebuilt by the collector jobs)
 data/
