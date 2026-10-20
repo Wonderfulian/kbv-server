@@ -47,8 +47,10 @@ console.log('before | payer USDC:', formatUnits(payerBefore, 6), '| receiver USD
 if (payerBefore === 0n)
   throw new Error(MAINNET ? 'payer holds no USDC on Base mainnet — fund it first' : 'payer holds no test USDC — run the faucet step first');
 
-// 1) burn today's free tier so the paid path is actually exercised
-const statusUrl = `${BASE}/v1/business/124-81-00998/status`;
+// 1) burn today's free tier so the paid path is actually exercised.
+// Not 124-81-00998: that documented test number is free everywhere, so it
+// never reaches 402.
+const statusUrl = `${BASE}/v1/business/121-81-40254/status`;
 let last;
 for (let i = 0; i < 12; i++) {
   last = await fetch(statusUrl);
