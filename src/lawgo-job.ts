@@ -12,6 +12,7 @@
  *
  * LAWGO_MODE=elaw — fetches English statute texts (LAWGO_ELAW_MST, comma
  * separated law.go.kr serial numbers) into the bucket.
+ * LAWGO_MODE=law — fetches the Korean statutes in force (LAWGO_LAW_IDS, law IDs).
  *
  * Output never contains the OC: logs carry facts and masked snippets only.
  */
@@ -112,6 +113,18 @@ export async function runElaw(client: LawGoClient, msts: string[], save: Save, l
   log({ event: 'lawgo_elaw', requested: msts.length, saved });
 }
 
+/** Korean statute texts in force, by law.go.kr law ID — to align articles with the English versions. */
+export async function runLaw(client: LawGoClient, ids: string[], save: Save, log: Log): Promise<void> {
+  let saved = 0;
+  for (const id of ids) {
+    const xml = await client.service('law', { ID: id });
+    await save(`${PREFIX}/law/${id}.xml`, xml);
+    saved++;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  log({ event: 'lawgo_law', requested: ids.length, saved });
+}
+
 // --- entry point -----------------------------------------------------------
 
 if (process.env.VITEST === undefined && isMainModule(import.meta.url)) {
@@ -134,9 +147,11 @@ if (process.env.VITEST === undefined && isMainModule(import.meta.url)) {
   };
   try {
     const client = createLawGoClient({ oc });
+    const list = (v: string | undefined) => (v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
     if (process.env.LAWGO_MODE === 'elaw') {
-      const msts = (process.env.LAWGO_ELAW_MST ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-      await runElaw(client, msts, save, log);
+      await runElaw(client, list(process.env.LAWGO_ELAW_MST), save, log);
+    } else if (process.env.LAWGO_MODE === 'law') {
+      await runLaw(client, list(process.env.LAWGO_LAW_IDS), save, log);
     } else {
       const ok = await runCheck(client, oc, save, log, { probe: () => probeHomepage() });
       if (!ok) process.exit(2);

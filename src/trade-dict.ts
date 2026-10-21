@@ -33,7 +33,22 @@ export const REVIEW = {
   notice_effective: '2026-07-16',
   /** API sample the coverage was measured on: 1,416 HS codes, both directions. */
   sample: '1,416 HSK codes (every 8th of 11,327), import and export, 2026-10-20/21',
+  /**
+   * The first agency checks ran with TLS certificate verification off (some
+   * public-sector sites have legacy TLS). All agency English names were then
+   * re-fetched from the same source pages with verification ON on this date;
+   * entries that could not be are marked `tls_unverified`.
+   */
+  tls_reverified_on: '2026-10-21',
 } as const;
+
+/**
+ * Put in every response that carries these names. Agencies and forms are
+ * known by their Korean names; an agent that asks for a certificate by its
+ * English name may not be understood.
+ */
+export const KOREAN_NAMES_NOTE =
+  'When contacting an agency or requesting a certificate, use the Korean names (name_ko). English names are provided for understanding only; unofficial ones are marked as such.';
 
 export interface StatuteEntry {
   /** Official Korean title as currently in force. */
@@ -170,6 +185,11 @@ export interface AgencyEntry {
   /** Division the API names in parentheses, e.g. 식물 (plants). Untranslated. */
   division_ko?: string;
   note?: string;
+  /**
+   * Set when the English name could only be confirmed with TLS certificate
+   * verification off — a substituted value cannot be ruled out.
+   */
+  tls_unverified?: true;
 }
 
 const A = (name_ko: string, name_en: string | null, source: string | null, extra: Partial<AgencyEntry> = {}): AgencyEntry => ({
@@ -222,7 +242,10 @@ export const AGENCIES: Record<string, AgencyEntry> = {
   '250': A('한국산업안전보건공단', null, null, { status: 'renamed', note: 'API sends 한국산업안전공단. English name seen only in secondary sources; the agency page renders by script.' }),
   '253': A('한국가스안전공사', 'Korea Gas Safety Corporation', 'https://www.kgs.or.kr/eng/main.do'),
   '254': A('한국건설생활환경시험연구원', 'Korea Conformity Laboratories', 'https://www.kcl.re.kr/site/main/index001.do'),
-  '255': A('FITI시험연구원', 'FITI Testing & Research Institute', 'https://www.fitiglobal.com/en/'),
+  '255': A('FITI시험연구원', 'FITI Testing & Research Institute', 'https://www.fitiglobal.com/en/', {
+    tls_unverified: true,
+    note: 'Source site certificate does not match its host name (ERR_TLS_CERT_ALTNAME_INVALID); confirmed only with verification off.',
+  }),
   '257': A('한국화학융합시험연구원', 'Korea Testing & Research Institute', 'https://ktr.or.kr/eng/introduce/prcenter/contentsid/1092/index.do'),
   '259': A('한국사료협회', null, null),
   '261': A('한국동물약품협회', 'Korea Animal Health Product Association', 'http://www.kahpa.or.kr/eng/'),
@@ -234,7 +257,10 @@ export const AGENCIES: Record<string, AgencyEntry> = {
   '321': A('한국완구공업협동조합', null, null),
   '324': A('방위사업청', 'Defense Acquisition Program Administration', 'https://www.dapa.go.kr/dapa_en/main.do'),
   '325': A('KATRI시험연구원', null, null),
-  '332': A('유역(지방)환경청', null, null, { note: 'A group of regional offices, not one agency; there is no single official English name.' }),
+  '332': A('유역(지방)환경청', null, null, {
+    note:
+      "A group label for river basin and regional environmental offices, not one agency. The ministry's English pages use 'Regional Environmental Offices' for the latter only; no official term covering both was found.",
+  }),
   '336': A('한국제품안전협회', null, null),
   '339': A('한국의약품시험연구원', 'Korea Pharmaceutical Test & Research Institute', 'https://www.kptr.or.kr', { status: 'renamed', note: 'API sends 한국의약품시험연구소.' }),
   '341': A('(재)충북테크노파크바이오센터', null, null),
@@ -256,7 +282,8 @@ export const AGENCIES: Record<string, AgencyEntry> = {
 
 export type DictMiss =
   | { kind: 'statute'; code: string; matched_by_title: boolean }
-  | { kind: 'agency'; code: string };
+  | { kind: 'agency'; code: string }
+  | { kind: 'certificate'; name_ko: string };
 
 export interface ResolvedStatute {
   code: string;
@@ -292,6 +319,7 @@ export interface ResolvedAgency {
   /** Present when the API's Korean name is outdated or the agency has merged. */
   status?: Exclude<AgencyStatus, 'active'>;
   division_ko?: string;
+  tls_unverified?: true;
 }
 
 /** By code only — agency names are too unstable to match on. Unknown codes keep the API's Korean name. */
@@ -307,16 +335,126 @@ export function resolveAgency(code: string, apiName: string, onMiss?: (m: DictMi
     name_en: e.name_en,
     ...(e.status !== 'active' ? { status: e.status } : {}),
     ...(e.division_ko ? { division_ko: e.division_ko } : {}),
+    ...(e.tls_unverified ? { tls_unverified: true as const } : {}),
   };
 }
 
+export interface CertificateEntry {
+  /** Official English name, only where an official English statute names this very document. */
+  official?: { name_en: string; law_id: string; article: string; en_version: string };
+  /** Our own rendering, used only when there is no official name. No source; marked unofficial in responses. */
+  unofficial?: string;
+  note?: string;
+}
+
 /**
- * Certificate names (reqCfrmIstmNm) have no codes and, as far as could be
- * established, no official English names: they are domestic form titles.
- * They are returned in Korean only until an official source is found.
+ * Certificate names (reqCfrmIstmNm) as the API sends them. They have no codes
+ * and are mostly domestic form titles defined below statute level, so the
+ * official English statutes name only one of them (checked 2026-10-21 by
+ * aligning each name with the Korean article that uses it and reading the
+ * same article of the English version). Everything else carries an unofficial
+ * rendering, kept apart from the official field: law.go.kr's quoting
+ * condition (translations separated from the original and marked unofficial)
+ * applied to form names. Terms follow the English statutes where they exist
+ * ("import declaration", "Category I chemical substances",
+ * "ecosystem-disturbing species").
  */
-export function resolveCertificate(apiName: string): { name_ko: string; name_en: null } {
-  return { name_ko: apiName.trim(), name_en: null };
+export const CERTIFICATES: Record<string, CertificateEntry> = Object.fromEntries(
+  (
+    [
+      ['검역증명서', { official: { name_en: 'certificate of quarantine', law_id: '001504', article: 'Article 41(5)', en_version: '2025-07-22' } }],
+      ['식물검역증명서', {
+        unofficial: 'Plant quarantine certificate',
+        note: "Issued by Korea's Animal and Plant Quarantine Agency; not the exporting country's phytosanitary certificate under Article 8 of the Plant Protection Act.",
+      }],
+      ['국제적멸종위기 동식물 수입허가서', { unofficial: 'Import permit for internationally endangered species of fauna and flora' }],
+      ['수입식품등 수입신고확인증', { unofficial: 'Confirmation of import declaration for imported food, etc.' }],
+      ['전기용품 및 생활용품 요건확인서', { unofficial: 'Requirement confirmation for electrical appliances and consumer products' }],
+      ['표준통관예정보고서(의약품등)', { unofficial: 'Standard pre-clearance report (pharmaceuticals, etc.)' }],
+      ['표준통관예정보고서(의료기기)', { unofficial: 'Standard pre-clearance report (medical devices)' }],
+      ['표준통관예정보고서(화장품)', { unofficial: 'Standard pre-clearance report (cosmetics)' }],
+      ['표준통관예정보고서 등', { unofficial: 'Standard pre-clearance report, etc.' }],
+      ['수출허가서', { unofficial: 'Export permit' }],
+      ['수출허가증', { unofficial: 'Export permit certificate' }],
+      ['동물검역증명서', { unofficial: 'Animal quarantine certificate' }],
+      ['수입승인서', { unofficial: 'Import approval' }],
+      ['수입승인서(방위산업용물품)', { unofficial: 'Import approval (defense industry goods)' }],
+      ['수입승인서(방사성물질등)', { unofficial: 'Import approval (radioactive materials, etc.)' }],
+      ['수입승인서(석면함유가능물질)', { unofficial: 'Import approval (materials that may contain asbestos)' }],
+      ['수출승인서', { unofficial: 'Export approval' }],
+      ['마약류수입승인서', { unofficial: 'Narcotics import approval' }],
+      ['제조금지물질 수입승인서', { unofficial: 'Import approval for substances prohibited from manufacture' }],
+      ['화학물질 수입허가(신고)서', { unofficial: 'Chemical substance import permit (or notification)' }],
+      ['취급제한_취급금지 물질 수입허가증', { unofficial: 'Import permit for restricted or prohibited substances' }],
+      ['1종화학물질 생물작용제등 수입허가서', { unofficial: 'Import permit for Category I chemical substances, biological agents, etc.' }],
+      ['방송통신기기인증확인서', { unofficial: 'Confirmation of broadcasting and communications equipment certification' }],
+      ['수입폐기물허가확인서', { unofficial: 'Confirmation of imported waste permit' }],
+      ['폐기물수출허가확인서', { unofficial: 'Confirmation of waste export permit' }],
+      ['폐기물수출신고확인서', { unofficial: 'Confirmation of waste export notification' }],
+      ['폐기물수출신고확인서, 폐기물수출허가확인서', { unofficial: 'Confirmation of waste export notification, or confirmation of waste export permit' }],
+      ['사료수입신고필증', { unofficial: 'Certificate of completed feed import declaration' }],
+      ['먹는물수입신고필증', { unofficial: 'Certificate of completed drinking water import declaration' }],
+      ['수입수산동물검역증명서', { unofficial: 'Quarantine certificate for imported aquatic animals' }],
+      ['야생동물 수입검역 증명서', { unofficial: 'Import quarantine certificate for wild animals' }],
+      ['어린이제품 요건확인서', { unofficial: "Requirement confirmation for children's products" }],
+      ['총포화약류등 수입허가증', { unofficial: 'Import permit for guns, explosives, etc.' }],
+      ['안전기준 적합확인 신고증명서', { unofficial: 'Certificate of notification of conformity with safety standards' }],
+      ['안전기준 적합확인 신고증명서 등', { unofficial: 'Certificate of notification of conformity with safety standards, etc.' }],
+      ['안전인증확인서', { unofficial: 'Safety certification confirmation' }],
+      ['종자수입요건확인서', { unofficial: 'Seed import requirement confirmation' }],
+      ['수입요건 확인서', { unofficial: 'Import requirement confirmation' }],
+      ['수출요건확인서', { unofficial: 'Export requirement confirmation' }],
+      ['생물자원 국외반출 승인서', { unofficial: 'Approval to take biological resources out of Korea' }],
+      ['국외반출허가서', { unofficial: 'Permit to take out of Korea' }],
+      ['생태계교란 생물 수입허가서', { unofficial: 'Import permit for ecosystem-disturbing species' }],
+      ['수입신고 적합 통보서', { unofficial: 'Notice of conformity of import declaration' }],
+      ['수출신고 적합 통보서', { unofficial: 'Notice of conformity of export declaration' }],
+      ['특정물질수입확인서', { unofficial: 'Specific substance import confirmation' }],
+      ['수입식물검역증명서, 가공품목확인서 또는 금지품제외확인서', {
+        unofficial: 'Import plant quarantine certificate, processed-item confirmation, or prohibited-item exemption confirmation',
+      }],
+      ['수입식물검역증명서 등', { unofficial: 'Import plant quarantine certificate, etc.' }],
+      ['규격품질검사결과 통지서', { unofficial: 'Notice of standards and quality inspection results' }],
+      ['감청설비인가서', { unofficial: 'Authorization for interception equipment' }],
+      ['농약품목등록증 또는 농약수입허가증', { unofficial: 'Pesticide product registration certificate or pesticide import permit' }],
+      ['안전확인대상생활화학제품 승인통지서', { unofficial: 'Approval notice for consumer chemical products subject to safety confirmation' }],
+      ['용기검사신청확인서', { unofficial: 'Confirmation of container inspection application' }],
+      ['수입가스용품 요건승인서', { unofficial: 'Requirement approval for imported gas appliances' }],
+    ] as [string, CertificateEntry][]
+  ).map(([ko, e]) => [normalizeCertificate(ko), e]),
+);
+
+export function normalizeCertificate(s: string): string {
+  return s.replace(/\s+/g, '');
+}
+
+export interface ResolvedCertificate {
+  name_ko: string;
+  /** Official English name, or null. */
+  name_en: string | null;
+  /** Present only when name_en is null and we have a rendering; never official. */
+  name_en_unofficial?: string;
+  official_source?: { law_id: string; article: string };
+  note?: string;
+}
+
+/** By the Korean name the API sends; an unknown name keeps Korean only and is reported. */
+export function resolveCertificate(apiName: string, onMiss?: (m: DictMiss) => void): ResolvedCertificate {
+  const name_ko = apiName.trim();
+  const e = CERTIFICATES[normalizeCertificate(name_ko)];
+  if (!e) {
+    onMiss?.({ kind: 'certificate', name_ko });
+    return { name_ko, name_en: null };
+  }
+  if (e.official) {
+    return {
+      name_ko,
+      name_en: e.official.name_en,
+      official_source: { law_id: e.official.law_id, article: e.official.article },
+      ...(e.note ? { note: e.note } : {}),
+    };
+  }
+  return { name_ko, name_en: null, ...(e.unofficial ? { name_en_unofficial: e.unofficial } : {}), ...(e.note ? { note: e.note } : {}) };
 }
 
 /**

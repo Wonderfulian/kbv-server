@@ -10,7 +10,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   AGENCIES,
+  CERTIFICATES,
   type DictMiss,
+  KOREAN_NAMES_NOTE,
   resolveAgency,
   resolveCertificate,
   resolveStatute,
@@ -101,8 +103,46 @@ describe('agencies', () => {
 });
 
 describe('certificates and review', () => {
-  it('returns certificate names in Korean only', () => {
-    expect(resolveCertificate(' 수입식품등 수입신고확인증 ')).toEqual({ name_ko: '수입식품등 수입신고확인증', name_en: null });
+  it('gives an official English name only where an English statute names that document, with its source', () => {
+    expect(resolveCertificate('검역증명서')).toEqual({
+      name_ko: '검역증명서',
+      name_en: 'certificate of quarantine',
+      official_source: { law_id: '001504', article: 'Article 41(5)' },
+    });
+  });
+
+  it('keeps an unofficial rendering in its own field, never in name_en', () => {
+    const r = resolveCertificate(' 수입식품등 수입신고확인증 ');
+    expect(r.name_ko).toBe('수입식품등 수입신고확인증');
+    expect(r.name_en).toBeNull();
+    expect(r.name_en_unofficial).toBe('Confirmation of import declaration for imported food, etc.');
+  });
+
+  it('warns that the plant quarantine certificate is not the exporting country certificate of the same name', () => {
+    const r = resolveCertificate('식물검역증명서');
+    expect(r.name_en).toBeNull();
+    expect(r.note).toMatch(/not the exporting country's phytosanitary certificate/);
+  });
+
+  it('returns Korean only for an unknown certificate and reports it', () => {
+    const misses: DictMiss[] = [];
+    expect(resolveCertificate('새 서식', (m) => misses.push(m))).toEqual({ name_ko: '새 서식', name_en: null });
+    expect(misses).toEqual([{ kind: 'certificate', name_ko: '새 서식' }]);
+  });
+
+  it('every certificate has either an official or an unofficial English name, never both', () => {
+    for (const [k, e] of Object.entries(CERTIFICATES)) {
+      expect(Boolean(e.official) !== Boolean(e.unofficial), k).toBe(true);
+    }
+  });
+
+  it('tells agents to use the Korean names with agencies', () => {
+    expect(KOREAN_NAMES_NOTE).toMatch(/use the Korean names/);
+  });
+
+  it('marks the one agency confirmed only without TLS verification', () => {
+    expect(resolveAgency('255', 'FITI시험연구원').tls_unverified).toBe(true);
+    expect(resolveAgency('005', '식품의약품안전처').tls_unverified).toBeUndefined();
   });
 
   it('flags a requirement that took effect after the notice revision it was reviewed against', () => {
