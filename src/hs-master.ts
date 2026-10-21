@@ -53,21 +53,46 @@ export function normalizeHsInput(input: unknown): string | null {
   return /^\d+$/.test(stripped) ? stripped : null;
 }
 
+/**
+ * The date an annual KCS table stamps on (nearly) every row: the edition's
+ * validity, not a per-row expiry. It is the MOST COMMON end date, not the
+ * latest — the 2026 tariff schedule has one rate running to 2030, and taking
+ * the maximum would turn every 2026-12-31 row into a "real" expiry.
+ */
+export function editionEndDate(endDates: Iterable<string>): string {
+  const counts = new Map<string, number>();
+  for (const d of endDates) counts.set(d, (counts.get(d) ?? 0) + 1);
+  let best = '';
+  let bestCount = -1;
+  for (const [d, n] of counts) {
+    if (n > bestCount || (n === bestCount && d > best)) {
+      best = d;
+      bestCount = n;
+    }
+  }
+  return best;
+}
+
+/** In force today, reading the edition's blanket end date as "until the next edition". */
+export function inForce(from: string, to: string, today: string, editionEnd: string): boolean {
+  if (from > today) return false;
+  return to >= today || to === editionEnd;
+}
+
 export class HsMaster {
   private readonly rows: Map<string, HsRow>;
   /**
    * The edition's blanket end date. Every row of the 2026 file ends on
    * 2026-12-31: that is the edition's validity, not each code's repeal. Taken
    * literally, every lookup would fail on 1 January until the next file is
-   * loaded — so only an end date earlier than this counts as a repeal.
+   * loaded (the tariff schedule's next edition is not due until 31 January) —
+   * so only an end date other than this counts as a repeal.
    */
   readonly editionEnd: string;
 
   constructor(readonly file: HsMasterFile) {
     this.rows = new Map(Object.entries(file.codes));
-    let end = '';
-    for (const row of this.rows.values()) if (row[3] > end) end = row[3];
-    this.editionEnd = end;
+    this.editionEnd = editionEndDate([...this.rows.values()].map((r) => r[3]));
   }
 
   /** True once the edition has run out: the annual rebuild is overdue. */
@@ -83,8 +108,7 @@ export class HsMaster {
   }
 
   private inForce(row: HsRow, today: string): boolean {
-    if (row[2] > today) return false;
-    return row[3] >= today || row[3] === this.editionEnd;
+    return inForce(row[2], row[3], today, this.editionEnd);
   }
 
   private group(code: string): Pick<HsCandidate, 'group_ko' | 'group_en'> {

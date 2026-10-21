@@ -20,7 +20,8 @@ export interface NameIndexStore {
    * far it got, or the only recovery is to start over.
    */
   readJson<T>(path: string): Promise<T | null>;
-  writeJson(path: string, data: unknown): Promise<void>;
+  /** Pretty-printed by default; `compact` for large indexes the server loads whole. */
+  writeJson(path: string, data: unknown, opts?: { compact?: boolean }): Promise<void>;
 }
 
 function toJsonl(entries: NameIndexEntry[]): string {
@@ -62,8 +63,8 @@ export class GcsNameIndexStore implements NameIndexStore {
     return JSON.parse(buf.toString('utf8')) as T;
   }
 
-  async writeJson(path: string, data: unknown): Promise<void> {
-    await this.bucket.file(path).save(JSON.stringify(data, null, 2), { contentType: 'application/json' });
+  async writeJson(path: string, data: unknown, opts: { compact?: boolean } = {}): Promise<void> {
+    await this.bucket.file(path).save(JSON.stringify(data, null, opts.compact ? undefined : 2), { contentType: 'application/json' });
   }
 }
 
@@ -92,9 +93,9 @@ export class LocalNameIndexStore implements NameIndexStore {
     }
   }
 
-  async writeJson(path: string, data: unknown): Promise<void> {
+  async writeJson(path: string, data: unknown, opts: { compact?: boolean } = {}): Promise<void> {
     const target = join(this.root, path);
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, JSON.stringify(data, null, 2), 'utf8');
+    await writeFile(target, JSON.stringify(data, null, opts.compact ? undefined : 2), 'utf8');
   }
 }

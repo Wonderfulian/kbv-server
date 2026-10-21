@@ -69,17 +69,55 @@ function columnIndex(ref: string): number {
 
 /** Rows of the first worksheet; missing cells are empty strings. */
 export function readFirstSheet(xlsx: Buffer): string[][] {
+  const sheets = readSheets(xlsx);
+  const first = sheets.values().next();
+  if (first.done) throw new XlsxError('workbook has no worksheet');
+  return first.value;
+}
+
+/**
+ * Every worksheet by its tab name, in workbook order. Tab order comes from
+ * xl/workbook.xml and its relationships — the sheetN.xml numbering need not
+ * match it.
+ */
+export function readSheets(xlsx: Buffer): Map<string, string[][]> {
   const parts = readZip(xlsx);
   const shared: string[] = [];
   const sst = parts.get('xl/sharedStrings.xml');
   if (sst) for (const m of sst.toString('utf8').matchAll(/<si>([\s\S]*?)<\/si>/g)) shared.push(textRuns(m[1]));
 
-  const sheetName = [...parts.keys()]
-    .filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n))
-    .sort((a, b) => Number(/(\d+)\.xml$/.exec(a)?.[1]) - Number(/(\d+)\.xml$/.exec(b)?.[1]))[0];
-  if (!sheetName) throw new XlsxError('workbook has no worksheet');
-  const sheet = parts.get(sheetName)!.toString('utf8');
+  const wb = parts.get('xl/workbook.xml')?.toString('utf8') ?? '';
+  const rels = parts.get('xl/_rels/workbook.xml.rels')?.toString('utf8') ?? '';
+  const target = new Map<string, string>();
+  for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+    const id = /\bId="([^"]+)"/.exec(m[0])?.[1];
+    const t = /\bTarget="([^"]+)"/.exec(m[0])?.[1];
+    if (id && t) target.set(id, t.replace(/^\/?xl\//, '').replace(/^\//, ''));
+  }
+  const ordered: [string, string][] = [];
+  for (const m of wb.matchAll(/<sheet\b[^>]*>/g)) {
+    const name = decodeXml(/\bname="([^"]+)"/.exec(m[0])?.[1] ?? '');
+    const rid = /\br:id="([^"]+)"/.exec(m[0])?.[1];
+    const t = rid ? target.get(rid) : undefined;
+    if (t) ordered.push([name, `xl/${t}`]);
+  }
+  if (ordered.length === 0) {
+    // No workbook.xml (minimal files): fall back to sheetN numbering.
+    for (const n of [...parts.keys()]
+      .filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n))
+      .sort((a, b) => Number(/(\d+)\.xml$/.exec(a)?.[1]) - Number(/(\d+)\.xml$/.exec(b)?.[1]))) {
+      ordered.push([n.replace(/^.*\/|\.xml$/g, ''), n]);
+    }
+  }
+  const out = new Map<string, string[][]>();
+  for (const [name, path] of ordered) {
+    const xml = parts.get(path);
+    if (xml) out.set(name, parseSheet(xml.toString('utf8'), shared));
+  }
+  return out;
+}
 
+function parseSheet(sheet: string, shared: string[]): string[][] {
   const rows: string[][] = [];
   for (const rm of sheet.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
     const row: string[] = [];

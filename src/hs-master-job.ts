@@ -29,16 +29,24 @@ export interface Download {
   body: Buffer;
 }
 
-export async function downloadHsFile(fetchFn: typeof fetch = fetch): Promise<Download> {
-  const page = await (await fetchFn(`${PORTAL}/data/${HS_DATASET}/fileData.do`)).text();
-  const detail = new RegExp(`fn_fileDataDown\\('${HS_DATASET}',\\s*'(uddi:[0-9a-f-]+)'`).exec(page)?.[1];
-  if (!detail) throw new HsMasterError('data.go.kr dataset page no longer names the HS file (download flow changed)');
+export function downloadHsFile(fetchFn: typeof fetch = fetch): Promise<Download> {
+  return downloadDataGoKrFile(HS_DATASET, fetchFn);
+}
+
+/**
+ * Any data.go.kr file dataset, through the portal's own download flow. Every
+ * annual KCS table (HS master, tariff schedule, item names) comes this way.
+ */
+export async function downloadDataGoKrFile(dataset: string, fetchFn: typeof fetch = fetch): Promise<Download> {
+  const page = await (await fetchFn(`${PORTAL}/data/${dataset}/fileData.do`)).text();
+  const detail = new RegExp(`fn_fileDataDown\\('${dataset}',\\s*'(uddi:[0-9a-f-]+)'`).exec(page)?.[1];
+  if (!detail) throw new HsMasterError(`data.go.kr dataset ${dataset} page no longer names its file (download flow changed)`);
 
   const meta = await fetchFn(`${PORTAL}/tcs/dss/selectFileDataDownload.do`, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      publicDataPk: HS_DATASET,
+      publicDataPk: dataset,
       publicDataDetailPk: detail,
       atchFileId: '',
       fileDetailSn: '1',
@@ -50,14 +58,14 @@ export async function downloadHsFile(fetchFn: typeof fetch = fetch): Promise<Dow
     fileDetailSn?: string | number;
     dataSetFileDetailInfo?: { dataNm?: string };
   };
-  if (!info.atchFileId) throw new HsMasterError('data.go.kr did not resolve the HS file attachment id');
+  if (!info.atchFileId) throw new HsMasterError(`data.go.kr did not resolve the attachment id for dataset ${dataset}`);
 
   const file = await fetchFn(
     `${PORTAL}/cmm/cmm/fileDownload.do?atchFileId=${encodeURIComponent(info.atchFileId)}&fileDetailSn=${encodeURIComponent(String(info.fileDetailSn ?? 1))}`,
   );
-  if (!file.ok) throw new HsMasterError(`HS file download failed: HTTP ${file.status}`);
+  if (!file.ok) throw new HsMasterError(`dataset ${dataset} download failed: HTTP ${file.status}`);
   const body = Buffer.from(await file.arrayBuffer());
-  if (body.subarray(0, 2).toString('latin1') !== 'PK') throw new HsMasterError('HS file download is not an XLSX');
+  if (body.subarray(0, 2).toString('latin1') !== 'PK') throw new HsMasterError(`dataset ${dataset} download is not an XLSX`);
   return { fileName: info.dataSetFileDetailInfo?.dataNm ?? 'unknown', body };
 }
 
