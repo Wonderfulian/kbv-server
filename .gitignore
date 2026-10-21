@@ -29,6 +29,7 @@ PROGRESS.md
 MONITORING.md
 PHASE2-PLAN*.md
 TRADE-DESK-SPEC*.md
+KBV-HANDOFF-v*.md
 
 # Collected data artifacts (large; rebuilt by the collector jobs)
 data/
