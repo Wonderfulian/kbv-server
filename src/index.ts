@@ -77,7 +77,11 @@ const sanctions = indexBucket
  * request retries instead of the route staying down until a restart.
  */
 let hsMasterLoad: Promise<HsMaster> | undefined;
-const hsMaster = indexBucket
+// Mounted only with the stage flag: until the route ships, its path must not
+// answer at all — HS codes in its URL would reach the access log before the
+// privacy notes say so.
+const tradeDeskEnabled = process.env.TRADE_DESK_ENABLED === '1';
+const hsMaster = indexBucket && tradeDeskEnabled
   ? () => {
       hsMasterLoad ??= (async () => {
         const started = Date.now();
@@ -126,7 +130,7 @@ const x402: X402Options | undefined = payTo
       dailyFreeTier: Number(process.env.FREE_TIER_DAILY ?? 10),
       facilitatorClient: cdpFacilitator ? new HTTPFacilitatorClient(cdpFacilitator) : undefined,
       // Off until the import-requirements handler exists (TRADE-DESK stage 4).
-      tradeDesk: process.env.TRADE_DESK_ENABLED === '1',
+      tradeDesk: tradeDeskEnabled,
     }
   : undefined;
 console.log(
