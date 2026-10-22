@@ -78,7 +78,32 @@ export function buildX402Manifest(input: {
  * acted on: what this service answers, how to call it, what it costs, and the
  * one thing that sets it apart — you do not need the registration number.
  */
-export const LLMS_TXT = `# Korea Business Verify (KBV)
+/** Route table shape the payment middleware and this file share (key: "METHOD /path"). */
+export type PricedRoutes = Record<string, { accepts: { scheme: string; price: string }[] }>;
+
+/**
+ * The Paid lines are generated from the route table that sets each 402 price,
+ * like /.well-known/x402 — a hand-written copy went stale within a day of a new
+ * route (2026-10-22: the $0.03 import-requirements route was missing).
+ * `unitNotes` adds the per-unit price for metered "upto" routes, built by the
+ * caller from the same constant the settlement uses.
+ */
+export function pricingLines(routes?: PricedRoutes, unitNotes: Record<string, string> = {}): string {
+  if (!routes) return '- This deployment is not charging: no payment address is configured.';
+  const lines = Object.entries(routes).map(([key, r]) => {
+    const a = r.accepts[0];
+    const note = unitNotes[key];
+    const price = a.scheme === 'upto' ? `${note ? `${note}, ` : ''}authorized up to ${a.price} per call` : a.price;
+    return `  - ${key} — ${price}`;
+  });
+  return [
+    '- Paid routes (x402, USDC on Base). This list is generated from the same route table that sets each 402 price:',
+    ...lines,
+  ].join(String.fromCharCode(10));
+}
+
+export function buildLlmsTxt(routes?: PricedRoutes, unitNotes: Record<string, string> = {}): string {
+  return `# Korea Business Verify (KBV)
 
 > Hosted MCP server and REST API that finds Korean companies by name and verifies them against official
 > Korea National Tax Service (NTS) data. 10 free calls per day per IP, then pay-per-call via x402.
@@ -139,7 +164,7 @@ Example:
 ## Pricing
 
 - 10 free lookups per IP per day, resetting 00:00 UTC. MCP tools use it automatically; REST opts in with ?free=1.
-- Paid: search $0.02, status $0.02, verify $0.05, batch $0.02 per number. Payment via the x402 protocol.
+${pricingLines(routes, unitNotes)}
 
 ## Privacy and data source
 
@@ -155,3 +180,4 @@ Example:
 - [GitHub repository and full README](${REPO_URL})
 - [Health check](${BASE_URL}/health)
 `;
+}

@@ -12,7 +12,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { FacilitatorClient } from '@x402/core/server';
 import { buildApp, type X402Options } from '../src/app.js';
 import { createCache } from '../src/cache.js';
-import { buildX402Manifest, LLMS_TXT } from '../src/discovery.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { buildLlmsTxt, buildX402Manifest } from '../src/discovery.js';
+import { buildMcpServer } from '../src/mcp.js';
 import { isTestBusinessNumber, TEST_BUSINESS_NUMBER } from '../src/normalize.js';
 import type { NtsClient, NtsStatusItem } from '../src/nts.js';
 import type { Deps } from '../src/service.js';
@@ -87,6 +90,8 @@ describe('buildX402Manifest', () => {
   });
 });
 
+const LLMS_TXT = buildLlmsTxt();
+
 describe('LLMS_TXT', () => {
   it('leads with the differentiator and states the current price', () => {
     expect(LLMS_TXT).toMatch(/do not need the registration number|does not: give it a company name/i);
@@ -131,6 +136,24 @@ describe('HTTP surface', () => {
     }
   });
 
+  it('generates llms.txt prices from the same route table as the 402s — including routes added later', async () => {
+    const base = await start(deps(), { ...X402, tradeDesk: true });
+    const llms = await (await fetch(`${base}/llms.txt`)).text();
+    const manifest = (await (await fetch(`${base}/.well-known/x402`)).json()) as {
+      resources: { url: string; method?: string; accepts: { scheme: string; price: string }[] }[];
+    };
+    expect(manifest.resources.length).toBe(5);
+    for (const r of manifest.resources) {
+      const path = new URL(r.url).pathname;
+      const line = llms.split('\n').find((l) => l.includes(` ${path} — `));
+      expect(line, path).toBeDefined();
+      expect(line).toContain(r.accepts[0].price);
+    }
+    expect(llms).toContain('GET /v1/korea-import/requirements — $0.03');
+    expect(llms).toContain('POST /v1/business/batch — $0.02 per number, authorized up to $2.00 per call');
+    expect(llms).not.toMatch(/Paid: search \$0\.02/); // the retired hand-written line
+  });
+
   it('serves /.well-known/x402 as JSON when payments are configured', async () => {
     const base = await start(deps(), X402);
     const res = await fetch(`${base}/.well-known/x402`);
@@ -154,6 +177,51 @@ describe('HTTP surface', () => {
     expect((await fetch(`${base}/v1/business/2208162517/status?free=1`)).status).toBe(200);
     expect((await fetch(`${base}/v1/business/2208162517/status?free=1`)).status).toBe(200);
     expect((await fetch(`${base}/v1/business/2208162517/status?free=1`)).status).toBe(402);
+  });
+
+  it('never charges for verifying the test number either — but the identity check stays real', async () => {
+    const validations: string[] = [];
+    const d = deps();
+    // The upstream says "no match" for one name and "match" for another.
+    d.nts.validate = async (items) => {
+      for (const i of items) validations.push(i.p_nm);
+      return items.map((i) => ({ b_no: i.b_no, valid: i.p_nm === '진짜대표' ? ('01' as const) : ('02' as const) }));
+    };
+    const base = await start(d, X402);
+    const verify = (name: string) =>
+      fetch(`${base}/v1/business/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business_number: '124-81-00998', representative_name: name, opening_date: '1969-01-13' }),
+      });
+    for (let i = 0; i < 4; i++) {
+      const res = await verify('아무개');
+      expect(res.status).toBe(200); // no 402, no ?free=1 needed
+      expect(((await res.json()) as { identity_match: boolean }).identity_match).toBe(false);
+    }
+    expect(((await (await verify('진짜대표')).json()) as { identity_match: boolean }).identity_match).toBe(true);
+    expect(validations).toHaveLength(5); // every call really went to the upstream
+    // The allowance is untouched.
+    expect((await fetch(`${base}/v1/business/2208162517/status?free=1`)).status).toBe(200);
+    expect((await fetch(`${base}/v1/business/2208162517/status?free=1`)).status).toBe(200);
+    // A real number still pays for verify.
+    const paid = await fetch(`${base}/v1/business/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ business_number: '220-81-62517', representative_name: 'x', opening_date: '2000-01-01' }),
+    });
+    expect(paid.status).toBe(402);
+  });
+
+  it('spends no MCP quota on verifying the test number', async () => {
+    const used: number[] = [];
+    const server = buildMcpServer(deps(), { tryConsume: (u) => (used.push(u), true) });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const c = new Client({ name: 't', version: '1' });
+    await Promise.all([server.connect(a), c.connect(b)]);
+    await c.callTool({ name: 'verify_korean_business', arguments: { business_number: '124-81-00998', representative_name: 'x', opening_date: '1969-01-13' } });
+    await c.callTool({ name: 'verify_korean_business', arguments: { business_number: '220-81-62517', representative_name: 'x', opening_date: '2000-01-01' } });
+    expect(used).toEqual([1]); // only the real number
   });
 
   it('bills a batch only for its non-test numbers', async () => {

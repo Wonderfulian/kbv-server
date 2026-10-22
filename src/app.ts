@@ -27,7 +27,7 @@ import express from 'express';
 import { buildMcpServer } from './mcp.js';
 import { createQuota, type Quota } from './quota.js';
 import { buildRestRouter, PRICE_PER_LOOKUP_ATOMIC } from './rest.js';
-import { buildX402Manifest, LLMS_TXT } from './discovery.js';
+import { buildLlmsTxt, buildX402Manifest } from './discovery.js';
 import { hsGuard, IMPORT_REQUIREMENTS_PATH } from './hs-guard.js';
 import { normalizeHsInput } from './hs-master.js';
 import { TEST_HS_CODE } from './import-requirements.js';
@@ -142,7 +142,13 @@ function meteredUnits(req: express.Request, tradeDesk: boolean): number | null {
     // does not cost a developer their ten daily calls.
     return isTestBusinessNumber(STATUS_PATH.exec(req.path)?.[1]) ? null : 1;
   }
-  if (req.method === 'POST' && req.path === '/v1/business/verify') return 1;
+  if (req.method === 'POST' && req.path === '/v1/business/verify') {
+    // The test number is free here too: connecting a client should not cost
+    // the most expensive call. Only money and quota are waived — the identity
+    // check itself runs for real and can come back false.
+    const num = (req.body as { business_number?: unknown } | undefined)?.business_number;
+    return isTestBusinessNumber(typeof num === 'string' ? num : undefined) ? null : 1;
+  }
   if (req.method === 'POST' && req.path === '/v1/business/batch') {
     const nums = (req.body as { business_numbers?: unknown } | undefined)?.business_numbers;
     if (!Array.isArray(nums) || nums.length === 0 || nums.length > 100) return 0;
@@ -170,8 +176,11 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
   // Discovery documents, free and unmetered — crawlers were getting 404s for
   // both. Registered before the payment middleware so they can never end up
   // behind a paywall, which would defeat their purpose.
+  // The text is replaced below once the route table exists; the route itself
+  // must be registered here, ahead of the payment middleware.
+  let llmsTxt = buildLlmsTxt();
   app.get('/llms.txt', (_req, res) => {
-    res.type('text/plain; charset=utf-8').set('Cache-Control', 'public, max-age=3600').send(LLMS_TXT);
+    res.type('text/plain; charset=utf-8').set('Cache-Control', 'public, max-age=3600').send(llmsTxt);
   });
 
   // HS code validation runs before the payment middleware below: an unknown
@@ -329,6 +338,8 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
     // The manifest is generated from this very route table, so a price can
     // never drift between a 402 response and what discovery advertises.
     const manifest = buildX402Manifest({ routes, updated: new Date().toISOString() });
+    // Same table, same prices: llms.txt can no longer drift from the 402s.
+    llmsTxt = buildLlmsTxt(routes, { 'POST /v1/business/batch': `$${(PRICE_PER_LOOKUP_ATOMIC / 1_000_000).toFixed(2)} per number` });
     app.get('/.well-known/x402', (_req, res) => {
       res.type('application/json').set('Cache-Control', 'public, max-age=3600').json(manifest);
     });

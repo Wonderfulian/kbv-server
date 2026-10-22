@@ -252,7 +252,8 @@ export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
       outputSchema: { ...statusOutputShape, identity_match: z.boolean() },
     },
     async ({ business_number, representative_name, opening_date, address }) => {
-      const gate = quotaGate('verify_korean_business', 1);
+      // Test number: no quota spent, but the identity match is still the real one.
+      const gate = quotaGate('verify_korean_business', isTestBusinessNumber(business_number) ? 0 : 1);
       if (gate) return gate;
       return toToolResult(await verifyBusiness(deps, { business_number, representative_name, opening_date, address }));
     },
