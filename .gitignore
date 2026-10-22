@@ -31,5 +31,9 @@ PHASE2-PLAN*.md
 TRADE-DESK-SPEC*.md
 KBV-HANDOFF-v*.md
 
+# Agensi listing bundle — submitted separately, not part of the public repo
+agensi-skill/
+agensi-skill*.zip
+
 # Collected data artifacts (large; rebuilt by the collector jobs)
 data/
