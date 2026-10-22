@@ -270,10 +270,24 @@ describe('HS validation runs before the payment middleware', () => {
 
   it('lets a valid code through to the payment middleware (402 without payment)', async () => {
     const t = await start({ tradeDesk: true });
-    const res = await fetch(`${t.base}${IMPORT_REQUIREMENTS_PATH}?hs_code=8516710000`);
+    const res = await fetch(`${t.base}${IMPORT_REQUIREMENTS_PATH}?hs_code=7318152000`);
     expect(res.status).toBe(402);
     expect(res.headers.get('payment-required')).toBeTruthy();
     expect(t.outcomes).toEqual(['ok']);
+  });
+
+  it('never asks for payment for the documented test code', async () => {
+    const t = await start({ tradeDesk: true });
+    const res = await fetch(`${t.base}${IMPORT_REQUIREMENTS_PATH}?hs_code=8516.71-0000`);
+    expect(res.status).not.toBe(402);
+    expect(t.calls).toEqual({ verify: 0, settle: 0 });
+  });
+
+  it('rejects a bad direction before payment', async () => {
+    const t = await start({ tradeDesk: true });
+    const res = await fetch(`${t.base}${IMPORT_REQUIREMENTS_PATH}?hs_code=7318152000&direction=sideways`);
+    expect(res.status).toBe(400);
+    expect(res.headers.get('payment-required')).toBeNull();
   });
 
   it('fails closed with 503 when the master cannot be loaded — never "no requirements", never charged', async () => {

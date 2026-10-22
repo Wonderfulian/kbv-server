@@ -10,6 +10,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { isTestBusinessNumber, SOURCE, TEST_BUSINESS_NUMBER, type StatusResult, type VerifyResult } from './normalize.js';
+import { importRequirements, TEST_HS_CODE } from './import-requirements.js';
 import {
   checkStatus,
   checkStatusBatch,
@@ -256,6 +257,90 @@ export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
       return toToolResult(await verifyBusiness(deps, { business_number, representative_name, opening_date, address }));
     },
   );
+
+  // Import/export clearance requirements (Trade Desk), present only with
+  // TRADE_DESK_ENABLED. The code is validated against the HS master BEFORE the
+  // free-tier quota is touched: an unknown code would otherwise come back from
+  // the upstream as "no requirements", and a typo must not cost a lookup.
+  if (deps.trade && deps.hsMaster) {
+    const trade = deps.trade;
+    const loadMaster = deps.hsMaster;
+    server.registerTool(
+      'check_korea_import_requirements',
+      {
+        title: 'Check Korean import/export clearance requirements by HS code',
+        description:
+          'Check what Korean customs clearance requirements apply to a product by its 10-digit HS code. Goods ' +
+          'that need an unmet approval are held or returned at Korean customs. Returns which statutes require ' +
+          'clearance, which agencies can approve (often several, any one of which suffices), the certificate to ' +
+          "obtain, and each requirement's condition quoted from the governing notice (Korean original, which is " +
+          'authoritative) — plus tariff rates for imports. Data: Korea Customs Service and the Ministry of ' +
+          'Government Legislation. Fact lookup only — not a legal customs determination; whether a condition ' +
+          `applies to your product is not decided here. Test code ${TEST_HS_CODE} (coffee makers) is free.`,
+        annotations: LOOKUP_TOOL_ANNOTATIONS,
+        inputSchema: {
+          hs_code: z
+            .string()
+            .describe('10-digit Korean HS (HSK) code, dots/hyphens allowed. 6 digits returns the 10-digit candidates.'),
+          direction: z.enum(['import', 'export']).optional().describe('Default "import" (goods entering Korea)'),
+        },
+      },
+      async ({ hs_code, direction }) => {
+        const started = Date.now();
+        let master;
+        try {
+          master = await loadMaster();
+        } catch {
+          deps.log?.({ tool: 'check_korea_import_requirements', outcome: 'upstream_unavailable', ms: Date.now() - started });
+          return errorResult('hs_master_unavailable', 'The HS code table could not be loaded, so the code cannot be validated. Retry shortly.');
+        }
+        const today = trade.today?.() ?? new Date().toISOString().slice(0, 10);
+        const found = master.lookup(hs_code, today);
+        if (found.kind !== 'valid') {
+          deps.log?.({ tool: 'check_korea_import_requirements', outcome: 'invalid_input', ms: Date.now() - started });
+          if (found.kind === 'candidates') {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: 'text',
+                  text: JSON.stringify(
+                    {
+                      error: 'hs_code_incomplete',
+                      prefix: found.prefix,
+                      message: `${found.candidates.length} Korean 10-digit codes fall under ${found.prefix}; requirements differ between them. Choose one and ask again. Nothing was charged.`,
+                      candidates: found.candidates,
+                    },
+                    null,
+                    2,
+                  ),
+                },
+              ],
+            };
+          }
+          return errorResult(
+            found.kind === 'invalid_input' ? 'invalid_input' : 'hs_code_not_found',
+            found.kind === 'invalid_input'
+              ? found.message
+              : 'Not a current 10-digit Korean HS (HSK) code. Send the full 10-digit code, or 6 digits to list the codes under that subheading. Nothing was charged.',
+          );
+        }
+        const gate = quotaGate('check_korea_import_requirements', found.hs_code === TEST_HS_CODE ? 0 : 1);
+        if (gate) return gate;
+        const out = await importRequirements(trade, found, direction ?? 'import', { full: true });
+        deps.log?.({
+          tool: 'check_korea_import_requirements',
+          outcome: out.status === 200 ? 'ok' : 'upstream_unavailable',
+          ms: Date.now() - started,
+        });
+        return {
+          ...(out.status === 200 ? {} : { isError: true }),
+          content: [{ type: 'text', text: JSON.stringify(out.body, null, 2) }],
+          ...(out.status === 200 ? { structuredContent: out.body } : {}),
+        };
+      },
+    );
+  }
 
   return server;
 }

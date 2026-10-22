@@ -31,7 +31,7 @@ Built for AI agents and developers doing KYB / due-diligence on Korean companies
 | Screening | Batch calls also return public-procurement debarments (부정당업자 제재) per company |
 | Data source | Korea National Tax Service (국세청), official open-data API — queried live per request |
 | Data license | Korean government open data, **no usage restrictions** (이용허락범위 제한 없음) |
-| Privacy | KBV logs no query contents; numbers and search terms in GET URLs reach cloud access logs (14-day retention) — see [Privacy](#privacy) |
+| Privacy | KBV logs no query contents; numbers, search terms and HS codes in GET URLs reach cloud access logs (14-day retention) — see [Privacy](#privacy) |
 | Discovery | [`/.well-known/x402`](https://kbv-server-f7vfitmlkq-du.a.run.app/.well-known/x402) · [`/llms.txt`](https://kbv-server-f7vfitmlkq-du.a.run.app/llms.txt) |
 | Region | Google Cloud Run, Seoul (asia-northeast3) |
 
@@ -262,8 +262,8 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 ## Privacy
 
 - **KBV's own logs never contain query contents.** The service writes only event counts, outcomes, and latency; business numbers, representative names, and addresses are never written to them, and are sent nowhere except the official NTS API that answers the query.
-- **One exception, inherent to HTTP:** the two GET endpoints carry their input in the URL — `GET /v1/business/{number}/status` the business number, `GET /v1/business/search?q=` the company name or number you search for — so it appears in the platform access log that Google Cloud Run records for every request. Those entries are retained for **14 days**, then deleted automatically. KBV cannot mask a single field inside them: Cloud Logging filters whole entries, it does not rewrite them.
-- **Not affected:** `POST /v1/business/verify`, `POST /v1/business/batch` and all MCP tool calls (including `find_korean_business`) send their inputs in the request body, which access logs do not record. Prefer these if you would rather no identifier or search term appear in any log.
+- **One exception, inherent to HTTP:** the three GET endpoints carry their input in the URL — `GET /v1/business/{number}/status` the business number, `GET /v1/business/search?q=` the company name or number you search for, `GET /v1/korea-import/requirements?hs_code=` the HS code you look up — so it appears in the platform access log that Google Cloud Run records for every request. Those entries are retained for **14 days**, then deleted automatically. KBV cannot mask a single field inside them: Cloud Logging filters whole entries, it does not rewrite them.
+- **Not affected:** `POST /v1/business/verify`, `POST /v1/business/batch` and all MCP tool calls (including `find_korean_business` and `check_korea_import_requirements`) send their inputs in the request body, which access logs do not record. Prefer these if you would rather no identifier, search term or HS code appear in any log.
 - For context, a Korean business registration number is a public company identifier rather than personal data — though a sole proprietorship is registered to an individual, so the distinction above is worth knowing.
 - A short-lived in-memory cache (24 h max, hashed keys) exists solely so the service can answer during NTS outages; it is never shared or exported.
 

@@ -29,6 +29,8 @@ import { createQuota, type Quota } from './quota.js';
 import { buildRestRouter, PRICE_PER_LOOKUP_ATOMIC } from './rest.js';
 import { buildX402Manifest, LLMS_TXT } from './discovery.js';
 import { hsGuard, IMPORT_REQUIREMENTS_PATH } from './hs-guard.js';
+import { normalizeHsInput } from './hs-master.js';
+import { TEST_HS_CODE } from './import-requirements.js';
 import { isTestBusinessNumber } from './normalize.js';
 import type { Deps } from './service.js';
 
@@ -130,7 +132,11 @@ function meteredUnits(req: express.Request, tradeDesk: boolean): number | null {
   // answer (identity + confidence) rather than a 402 — see rest.ts.
   if (req.method === 'GET' && req.path === '/v1/business/search') return 1;
   // Reached only with a validated code: hsGuard answers every other input first.
-  if (req.method === 'GET' && req.path === IMPORT_REQUIREMENTS_PATH) return tradeDesk ? 1 : null;
+  // The documented test code is free and unlimited, like the test business number.
+  if (req.method === 'GET' && req.path === IMPORT_REQUIREMENTS_PATH) {
+    if (!tradeDesk) return null;
+    return normalizeHsInput(req.query.hs_code) === TEST_HS_CODE ? null : 1;
+  }
   if (req.method === 'GET' && STATUS_PATH.test(req.path)) {
     // The documented test number is free and unlimited, so wiring up a client
     // does not cost a developer their ten daily calls.
@@ -181,10 +187,12 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
     const importRoute = {
       accepts: [{ scheme: 'exact', price: '$0.03', network, payTo }],
       description:
-        'Check what Korean import clearance requirements apply to a product by its HS code. Goods that ' +
-        'need an unmet approval are held or returned at Korean customs. Returns which statutes require ' +
-        'clearance, which agencies can approve and the certificate to obtain. Korea Customs Service data; ' +
-        'fact lookup only, not a legal customs determination.',
+        'Check what Korean import clearance requirements apply to a product by its HS code. Goods that need ' +
+        'an unmet approval are held or returned at Korean customs. Returns which statutes require clearance, ' +
+        'which agencies can approve (often several, any one of which suffices), the certificate to obtain, and ' +
+        "each requirement's condition quoted from the governing notice (Korean original, authoritative) — plus " +
+        'tariff rates. Korea Customs Service and Ministry of Government Legislation data. Fact lookup only, not ' +
+        'a legal customs determination.',
       mimeType: 'application/json',
       ...BAZAAR_IMPORT,
       extensions: {

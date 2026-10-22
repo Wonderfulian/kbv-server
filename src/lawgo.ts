@@ -17,6 +17,8 @@
  * "Source: Ministry of Government Legislation (법제처), law.go.kr".
  */
 
+import { RetryableError, withRetry, type RetryOptions } from './retry.js';
+
 export const LAWGO_ATTRIBUTION = 'Source: Ministry of Government Legislation (법제처), law.go.kr';
 const BASE = 'https://www.law.go.kr/DRF';
 
@@ -35,13 +37,18 @@ export interface LawGoClient {
   service(target: string, params: Record<string, string>): Promise<string>;
 }
 
-export function createLawGoClient(opts: { oc: string | undefined; fetchFn?: typeof fetch; timeoutMs?: number }): LawGoClient {
+export function createLawGoClient(opts: {
+  oc: string | undefined;
+  fetchFn?: typeof fetch;
+  timeoutMs?: number;
+  retry?: RetryOptions;
+}): LawGoClient {
   const oc = opts.oc;
   if (!oc) throw new LawGoError('LAW_GO_KR_OC is not set — refusing to call law.go.kr without our own OC.');
   const fetchFn = opts.fetchFn ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 30_000;
 
-  async function call(endpoint: 'lawSearch.do' | 'lawService.do', target: string, params: Record<string, string>): Promise<string> {
+  async function once(endpoint: 'lawSearch.do' | 'lawService.do', target: string, params: Record<string, string>): Promise<string> {
     const qs = new URLSearchParams({ OC: oc as string, target, type: 'XML', ...params });
     let res: Response;
     try {
@@ -50,11 +57,22 @@ export function createLawGoClient(opts: { oc: string | undefined; fetchFn?: type
       // undici puts the URL in some messages; never let it through unmasked.
       // The cause code (ETIMEDOUT, ECONNRESET, a TLS code…) is what tells a
       // network block apart from a rejected credential.
-      throw new LawGoError(maskOc(`law.go.kr ${endpoint} ${target} failed: ${describeNetworkError(err)}`, oc as string));
+      throw new RetryableError(maskOc(`law.go.kr ${endpoint} ${target} failed: ${describeNetworkError(err)}`, oc as string));
     }
     const body = await res.text();
+    if (res.status >= 500) throw new RetryableError(maskOc(`law.go.kr ${endpoint} ${target} HTTP ${res.status}: ${body.slice(0, 200)}`, oc as string));
     if (!res.ok) throw new LawGoError(maskOc(`law.go.kr ${endpoint} ${target} HTTP ${res.status}: ${body.slice(0, 200)}`, oc as string));
     return body;
+  }
+
+  // Network errors and 5xx are retried; anything else is not (see retry.ts).
+  async function call(endpoint: 'lawSearch.do' | 'lawService.do', target: string, params: Record<string, string>): Promise<string> {
+    try {
+      return await withRetry(() => once(endpoint, target, params), opts.retry);
+    } catch (err) {
+      if (err instanceof RetryableError) throw new LawGoError(err.message);
+      throw err;
+    }
   }
 
   return {

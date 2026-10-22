@@ -29,6 +29,19 @@ export interface Download {
   body: Buffer;
 }
 
+/**
+ * The portal's "차기 등록 예정일" (next scheduled registration) for a file
+ * dataset, or null when the page states none. Read from the dataset page.
+ */
+export async function nextEditionDue(dataset: string, fetchFn: typeof fetch = fetch): Promise<string | null> {
+  const page = await (await fetchFn(`${PORTAL}/data/${dataset}/fileData.do`)).text();
+  const text = page.replace(/<[^>]+>/g, ' ');
+  const at = text.indexOf('차기 등록 예정일');
+  if (at < 0) return null;
+  const m = /(\d{4}-\d{2}-\d{2})/.exec(text.slice(at, at + 200));
+  return m ? m[1] : null;
+}
+
 export function downloadHsFile(fetchFn: typeof fetch = fetch): Promise<Download> {
   return downloadDataGoKrFile(HS_DATASET, fetchFn);
 }

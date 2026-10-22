@@ -9,7 +9,11 @@ import dotenv from 'dotenv';
 import { buildApp, type X402Options } from './app.js';
 import { createCache } from './cache.js';
 import { createDartClient } from './dart.js';
+import { createCustomsClient } from './customs.js';
+import { CONDITIONS_PATH, ConditionsIndex, type ConditionsFile } from './hs-conditions.js';
 import { HS_MASTER_PATH, HsMaster, type HsMasterFile } from './hs-master.js';
+import type { TradeDeps } from './import-requirements.js';
+import { ITEM_NAMES_PATH, TARIFF_PATH, TariffIndex, type ItemNamesFile, type TariffFile } from './tariff.js';
 import { GcsNameIndexStore } from './name-index-store.js';
 import { createNtsClient } from './nts.js';
 import { createSanctionsLookup, type SanctionsFile } from './sanctions.js';
@@ -72,32 +76,62 @@ const sanctions = indexBucket
   : undefined;
 
 /**
- * HS code master for import-requirements validation, from the same bucket.
- * Loaded on first use (≈1.7 MB). A failed load is not cached, so the next
- * request retries instead of the route staying down until a restart.
+ * A bucket file loaded on first use and kept for the life of the process. A
+ * failed load is not cached, so the next request retries instead of the route
+ * staying down until a restart.
  */
-let hsMasterLoad: Promise<HsMaster> | undefined;
-// Mounted only with the stage flag: until the route ships, its path must not
-// answer at all — HS codes in its URL would reach the access log before the
-// privacy notes say so.
+function lazyFromBucket<F, T>(bucket: string, path: string, name: string, build: (file: F) => T, describe: (file: F) => Record<string, unknown>) {
+  let loading: Promise<T> | undefined;
+  return () => {
+    loading ??= (async () => {
+      const started = Date.now();
+      const file = await new GcsNameIndexStore(bucket).readJson<F>(path);
+      if (!file) throw new Error(`${path} is missing from the index bucket`);
+      const out = build(file);
+      console.log(JSON.stringify({ event: `${name}_loaded`, ...describe(file), ms: Date.now() - started }));
+      return out;
+    })().catch((err: unknown) => {
+      loading = undefined;
+      console.error(JSON.stringify({ event: `${name}_load_failed`, error: (err as Error).message }));
+      throw err;
+    });
+    return loading;
+  };
+}
+
+// Everything below is mounted only with the stage flag: until the route ships,
+// its path must not answer at all — HS codes in its URL reach the access log,
+// and the privacy notes say so only together with the route.
 const tradeDeskEnabled = process.env.TRADE_DESK_ENABLED === '1';
-const hsMaster = indexBucket && tradeDeskEnabled
-  ? () => {
-      hsMasterLoad ??= (async () => {
-        const started = Date.now();
-        const file = await new GcsNameIndexStore(indexBucket).readJson<HsMasterFile>(HS_MASTER_PATH);
-        if (!file) throw new Error(`${HS_MASTER_PATH} is missing from the index bucket`);
-        const master = new HsMaster(file);
-        console.log(
-          JSON.stringify({ event: 'hs_master_loaded', file_name: file.file_name, codes: master.size, ms: Date.now() - started }),
-        );
-        return master;
-      })().catch((err: unknown) => {
-        hsMasterLoad = undefined;
-        console.error(JSON.stringify({ event: 'hs_master_load_failed', error: (err as Error).message }));
-        throw err;
-      });
-      return hsMasterLoad;
+const tradeBucket = indexBucket && tradeDeskEnabled ? indexBucket : undefined;
+
+/** HS code master for validation (≈1.7 MB). */
+const hsMaster = tradeBucket
+  ? lazyFromBucket<HsMasterFile, HsMaster>(tradeBucket, HS_MASTER_PATH, 'hs_master', (f) => new HsMaster(f), (f) => ({
+      file_name: f.file_name,
+    }))
+  : undefined;
+
+const trade: TradeDeps | undefined = tradeBucket
+  ? {
+      customs: createCustomsClient({
+        serviceKey,
+        onLatency: (ms, ok) => console.log(JSON.stringify({ event: 'customs_call', ms, ok })),
+      }),
+      conditions: lazyFromBucket<ConditionsFile, ConditionsIndex>(tradeBucket, CONDITIONS_PATH, 'conditions', (f) => new ConditionsIndex(f), (f) => ({
+        notice_no: f.notice.notice_no,
+        effective_from: f.notice.effective_from,
+      })),
+      tariff: lazyFromBucket<TariffFile, TariffIndex>(tradeBucket, TARIFF_PATH, 'tariff', (f) => new TariffIndex(f), (f) => ({
+        file_name: f.file_name,
+      })),
+      itemNames: lazyFromBucket<ItemNamesFile, ItemNamesFile>(tradeBucket, ITEM_NAMES_PATH, 'item_names', (f) => f, (f) => ({
+        file_name: f.file_name,
+      })),
+      // Dictionary health: a rising count of misses means codes or names arrived
+      // that the dictionary does not know; review_due means the notice was revised.
+      onDictMiss: (m) => console.log(JSON.stringify({ event: 'dict_miss', ...m })),
+      onReviewDue: (aply) => console.log(JSON.stringify({ event: 'dict_review_due', aply_strt_dt: aply })),
     }
   : undefined;
 
@@ -112,6 +146,7 @@ const deps: Deps = {
   ...(hsMaster
     ? { hsMaster, hsLog: (info: Record<string, unknown>) => console.log(JSON.stringify({ event: 'hs_check', ...info })) }
     : {}),
+  ...(trade ? { trade } : {}),
 };
 console.log(JSON.stringify({ event: 'search_config', enabled: Boolean(search), dart_enrichment: Boolean(dartKey), sanctions: Boolean(sanctions) }));
 

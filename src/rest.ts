@@ -24,6 +24,8 @@ import {
   type ServiceResult,
 } from './service.js';
 import { isTestBusinessNumber, type StatusResult, type VerifyResult } from './normalize.js';
+import { IMPORT_REQUIREMENTS_PATH } from './hs-guard.js';
+import { importRequirements, TEST_HS_CODE, type ValidHs } from './import-requirements.js';
 
 const HTTP_STATUS: Record<string, number> = {
   invalid_input: 400,
@@ -118,6 +120,25 @@ export function buildRestRouter(deps: Deps): Router {
       res.status(503).json({ error: 'upstream_unavailable', message: 'The name index could not be read. Retry shortly.' });
     }
   });
+
+  // Import/export clearance requirements (Trade Desk). hsGuard has already
+  // validated the code and direction before payment; res.locals.paid is set by
+  // the payment middleware, and the documented test code gets the full answer.
+  if (deps.trade) {
+    const trade = deps.trade;
+    router.get(IMPORT_REQUIREMENTS_PATH, async (_req, res) => {
+      const hs = res.locals.hs as ValidHs | undefined;
+      if (!hs) {
+        res.status(503).json({ error: 'hs_master_unavailable', message: 'The HS code could not be validated. Retry shortly.' });
+        return;
+      }
+      const started = Date.now();
+      const full = res.locals.paid === true || hs.hs_code === TEST_HS_CODE;
+      const out = await importRequirements(trade, hs, res.locals.direction === 'export' ? 'export' : 'import', { full });
+      deps.log?.({ tool: 'rest_import_requirements', outcome: out.status === 200 ? 'ok' : 'upstream_unavailable', ms: Date.now() - started });
+      res.status(out.status).json(out.body);
+    });
+  }
 
   return router;
 }

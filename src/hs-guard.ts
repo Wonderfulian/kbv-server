@@ -33,6 +33,13 @@ export function hsGuard(opts: HsGuardOptions): RequestHandler {
       next();
       return;
     }
+    const direction = req.query.direction ?? 'import';
+    if (direction !== 'import' && direction !== 'export') {
+      opts.log?.({ outcome: 'invalid_input' });
+      res.status(400).json({ error: 'invalid_input', message: 'Query parameter "direction" must be "import" or "export" (default "import").' });
+      return;
+    }
+    res.locals.direction = direction;
     let master: HsMaster;
     try {
       master = await opts.loadMaster();

@@ -37,6 +37,10 @@ export interface TariffFile {
   dataset: string;
   file_name: string;
   fetched_at: string;
+  /** Date the source file was cut (from its name, e.g. …_20260211) — amendments after it are not in it. */
+  source_as_of: string | null;
+  /** The portal's announced next registration date for the dataset, when it states one. */
+  next_edition_due: string | null;
   edition_end: string;
   /** ISO dates referenced by index from the rows. */
   dates: string[];
@@ -84,7 +88,17 @@ function columns<K extends string>(header: string[], wanted: Record<K, string>, 
   ) as Record<K, number>;
 }
 
-export function buildTariffFile(rows: string[][], meta: Omit<TariffFile, 'edition_end' | 'dates' | 'rates'>, minCodes = 10_000): TariffFile {
+/** …_YYYYMMDD at the end of a KCS file name -> ISO date. */
+export function asOfFromFileName(name: string): string | null {
+  const m = /(\d{4})(\d{2})(\d{2})(?:\.\w+)?\s*$/.exec(name);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
+export function buildTariffFile(
+  rows: string[][],
+  meta: Omit<TariffFile, 'edition_end' | 'dates' | 'rates' | 'source_as_of' | 'next_edition_due'> & { next_edition_due?: string | null },
+  minCodes = 10_000,
+): TariffFile {
   const idx = columns(rows[0] ?? [], TARIFF_HEADERS, 'Tariff');
   const dates: string[] = [];
   const dateIdx = new Map<string, number>();
@@ -118,7 +132,14 @@ export function buildTariffFile(rows: string[][], meta: Omit<TariffFile, 'editio
   }
   const codes = Object.keys(rates).length;
   if (codes < minCodes) throw new TariffError(`tariff schedule covers only ${codes} HS codes (expected at least ${minCodes})`);
-  return { ...meta, edition_end: editionEndDate(ends), dates, rates };
+  return {
+    ...meta,
+    source_as_of: asOfFromFileName(meta.file_name),
+    next_edition_due: meta.next_edition_due ?? null,
+    edition_end: editionEndDate(ends),
+    dates,
+    rates,
+  };
 }
 
 export class TariffIndex {
@@ -126,6 +147,34 @@ export class TariffIndex {
 
   isStale(today: string): boolean {
     return today > this.file.edition_end;
+  }
+
+  /** Whether the source file lists this code at all. */
+  has(hs: string): boolean {
+    return (this.file.rates[hs]?.length ?? 0) > 0;
+  }
+
+  /**
+   * Rate types this code HAS in the file but none in force today, whose last
+   * row ended on its own date (not the edition end). That is "the source file
+   * has nothing for this period" — e.g. FEU1/FGB1 end 2026-06-30 in the file
+   * dated 2026-02-11 with nothing after — and must not read as "no rate".
+   */
+  coverageGaps(hs: string, today: string): { type: string; last_rate: string; ended_on: string }[] {
+    const rows = this.file.rates[hs] ?? [];
+    const inForceTypes = new Set(this.ratesFor(hs, today).map((r) => r.type));
+    const last = new Map<string, TariffRow>();
+    for (const r of rows) {
+      const prev = last.get(r[0]);
+      if (!prev || this.file.dates[r[7]] > this.file.dates[prev[7]]) last.set(r[0], r);
+    }
+    const out: { type: string; last_rate: string; ended_on: string }[] = [];
+    for (const [type, r] of last) {
+      const to = this.file.dates[r[7]];
+      if (inForceTypes.has(type) || to === this.file.edition_end || to >= today) continue;
+      out.push({ type, last_rate: r[1], ended_on: to });
+    }
+    return out.sort((a, b) => a.type.localeCompare(b.type));
   }
 
   /** Rates in force today for a 10-digit code ([] when none). */

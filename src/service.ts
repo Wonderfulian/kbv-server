@@ -11,6 +11,7 @@
 import { statusKey, verifyKey, type KbvCache } from './cache.js';
 import type { HsCheckOutcome } from './hs-guard.js';
 import type { HsMaster } from './hs-master.js';
+import type { TradeDeps } from './import-requirements.js';
 import type { SanctionsLookup, SanctionView } from './sanctions.js';
 import type { SearchResponse } from './search.js';
 import {
@@ -55,6 +56,8 @@ export interface Deps {
   hsMaster?: () => Promise<HsMaster>;
   /** Metrics for HS validation — outcome only, never the code. */
   hsLog?: (info: { outcome: HsCheckOutcome; stale_master?: boolean }) => void;
+  /** Import/export requirements (Trade Desk). Present only with TRADE_DESK_ENABLED. */
+  trade?: TradeDeps;
 }
 
 export interface ServiceError {

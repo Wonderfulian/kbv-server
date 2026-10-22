@@ -10,7 +10,7 @@
 
 import { readFile } from 'node:fs/promises';
 import dotenv from 'dotenv';
-import { downloadDataGoKrFile, type Download } from './hs-master-job.js';
+import { downloadDataGoKrFile, nextEditionDue, type Download } from './hs-master-job.js';
 import { isMainModule } from './is-main.js';
 import { GcsNameIndexStore, LocalNameIndexStore, type NameIndexStore } from './name-index-store.js';
 import { buildItemNamesFile, buildTariffFile, ITEM_NAMES_PATH, TARIFF_PATH } from './tariff.js';
@@ -23,6 +23,7 @@ export async function buildTariffIndexes(opts: {
   store: NameIndexStore;
   downloadTariff: () => Promise<Download>;
   downloadItemNames: () => Promise<Download>;
+  nextDue?: () => Promise<string | null>;
   log: (info: Record<string, unknown>) => void;
   now?: () => Date;
 }): Promise<void> {
@@ -34,6 +35,7 @@ export async function buildTariffIndexes(opts: {
     dataset: TARIFF_DATASET,
     file_name: t.fileName,
     fetched_at: fetchedAt,
+    next_edition_due: (await opts.nextDue?.()) ?? null,
   });
   await opts.store.writeJson(TARIFF_PATH, tariff, { compact: true });
   let rows = 0;
@@ -49,6 +51,8 @@ export async function buildTariffIndexes(opts: {
     codes: Object.keys(tariff.rates).length,
     rows,
     edition_end: tariff.edition_end,
+    source_as_of: tariff.source_as_of,
+    next_edition_due: tariff.next_edition_due,
     rows_ending_at_edition_end: atEditionEnd,
     rows_with_own_end_date: rows - atEditionEnd,
   });
@@ -83,6 +87,7 @@ if (process.env.VITEST === undefined && isMainModule(import.meta.url)) {
       store: bucket ? new GcsNameIndexStore(bucket) : new LocalNameIndexStore(dir as string),
       downloadTariff: local(process.env.TARIFF_FILE, TARIFF_DATASET),
       downloadItemNames: local(process.env.ITEM_NAMES_FILE, ITEM_NAMES_DATASET),
+      nextDue: () => nextEditionDue(TARIFF_DATASET),
       log: (info) => console.log(JSON.stringify(info)),
     });
   } catch (err) {

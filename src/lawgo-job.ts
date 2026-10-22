@@ -13,6 +13,7 @@
  * LAWGO_MODE=elaw — fetches English statute texts (LAWGO_ELAW_MST, comma
  * separated law.go.kr serial numbers) into the bucket.
  * LAWGO_MODE=law — fetches the Korean statutes in force (LAWGO_LAW_IDS, law IDs).
+ * LAWGO_MODE=conditions — builds hs/conditions.json from the notice's attachment spreadsheets.
  *
  * Output never contains the OC: logs carry facts and masked snippets only.
  */
@@ -20,7 +21,11 @@
 import { Storage } from '@google-cloud/storage';
 import dotenv from 'dotenv';
 import { isMainModule } from './is-main.js';
+import { CONDITIONS_PATH, ConditionsError, indexConditionRows, type ConditionsFile, type NoticeInfo } from './hs-conditions.js';
 import { createLawGoClient, describeNetworkError, LawGoError, maskOc, xmlText, type LawGoClient } from './lawgo.js';
+import { GcsNameIndexStore, type NameIndexStore } from './name-index-store.js';
+import { RetryableError, withRetry } from './retry.js';
+import { readFirstSheet } from './xlsx.js';
 
 export const NOTICE_QUERY = '세관장확인물품';
 export const NOTICE_TITLE = '관세법 제226조에 따른 세관장확인물품 및 확인방법 지정고시';
@@ -113,6 +118,104 @@ export async function runElaw(client: LawGoClient, msts: string[], save: Save, l
   log({ event: 'lawgo_elaw', requested: msts.length, saved });
 }
 
+/** Current revision of the designation notice, from the in-force search. */
+export async function currentNotice(client: LawGoClient): Promise<NoticeInfo> {
+  const list = await client.search('admrul', { query: NOTICE_QUERY, display: '20', nw: '3' });
+  const entry = list
+    .split('<admrul id=')
+    .slice(1)
+    .find((b) => xmlText(b, '행정규칙명') === NOTICE_TITLE);
+  const serial = entry ? xmlText(entry, '행정규칙일련번호') : undefined;
+  if (!entry || !serial) throw new ConditionsError('the designation notice is not in the law.go.kr in-force list');
+  const ymd = (s: string | undefined) => (s && /^\d{8}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}` : '');
+  return {
+    name_ko: NOTICE_TITLE,
+    notice_no: `제${xmlText(entry, '발령번호') ?? ''}호`,
+    effective_from: ymd(xmlText(entry, '시행일자')),
+    serial,
+    url: `https://www.law.go.kr/admRulLsInfoP.do?admRulSeq=${serial}`,
+  };
+}
+
+/** Public attachment list of an administrative rule (no OC): [name, download URL]. */
+export function parseAttachmentList(html: string): [string, string][] {
+  const out: [string, string][] = [];
+  for (const part of html.split('<a href="').slice(1)) {
+    const href = part.slice(0, part.indexOf('"'));
+    const b = part.indexOf('<b>');
+    const e = part.indexOf('</b>');
+    if (!href.startsWith('flDownload.do') || b < 0 || e < b) continue;
+    out.push([part.slice(b + 3, e).trim(), `https://www.law.go.kr/LSW/${href}`]);
+  }
+  return out;
+}
+
+/**
+ * Builds hs/conditions.json from the notice in force: its number and date
+ * from law.go.kr (our OC), its attachment spreadsheets from the public
+ * attachment list. Network failures are retried; a missing attachment or an
+ * unreadable sheet fails the run instead of writing a partial index.
+ */
+export async function runConditions(
+  client: LawGoClient,
+  store: NameIndexStore,
+  log: Log,
+  fetchFn: typeof fetch = fetch,
+  now: () => Date = () => new Date(),
+): Promise<ConditionsFile> {
+  const notice = await currentNotice(client);
+  const get = (url: string, init?: RequestInit) =>
+    withRetry(async () => {
+      let res: Response;
+      try {
+        res = await fetchFn(url, { ...init, signal: AbortSignal.timeout(120_000) });
+      } catch (err) {
+        throw new RetryableError(`law.go.kr download failed: ${describeNetworkError(err)}`);
+      }
+      if (res.status >= 500) throw new RetryableError(`law.go.kr download HTTP ${res.status}`);
+      if (!res.ok) throw new ConditionsError(`law.go.kr download HTTP ${res.status}`);
+      return res;
+    });
+  const listHtml = await (
+    await get('https://www.law.go.kr/LSW/admRulAttFlList.do', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ admRulSeq: notice.serial }),
+    })
+  ).text();
+  const files = parseAttachmentList(listHtml);
+  const pick = (annex: string) => {
+    const f = files.find(([name]) => name.includes(annex) && name.toLowerCase().endsWith('.xlsx'));
+    if (!f) throw new ConditionsError(`notice ${notice.notice_no} has no ${annex} spreadsheet among its attachments`);
+    return f;
+  };
+  const sides = { import: pick('별표 2의2'), export: pick('별표 1의2') } as const;
+
+  const built: Partial<Record<'import' | 'export', Record<string, string>>> = {};
+  const unresolved: string[] = [];
+  const counts = { import: 0, export: 0 };
+  for (const side of ['import', 'export'] as const) {
+    const [, url] = sides[side];
+    const body = Buffer.from(await (await get(url)).arrayBuffer());
+    const { map, unresolved: u, rows } = indexConditionRows(readFirstSheet(body));
+    built[side] = map;
+    counts[side] = u.length;
+    unresolved.push(...u.slice(0, 10));
+    log({ event: 'conditions_sheet', side, rows, pairs: Object.keys(map).length, unresolved: u.length });
+  }
+  const file: ConditionsFile = {
+    notice,
+    built_at: now().toISOString(),
+    files: { import: sides.import[0], export: sides.export[0] },
+    import: built.import ?? {},
+    export: built.export ?? {},
+    unresolved: { ...counts, samples: unresolved },
+  };
+  await store.writeJson(CONDITIONS_PATH, file, { compact: true });
+  log({ event: 'conditions_built', notice_no: notice.notice_no, effective_from: notice.effective_from, unresolved: counts });
+  return file;
+}
+
 /** Korean statute texts in force, by law.go.kr law ID — to align articles with the English versions. */
 export async function runLaw(client: LawGoClient, ids: string[], save: Save, log: Log): Promise<void> {
   let saved = 0;
@@ -152,6 +255,8 @@ if (process.env.VITEST === undefined && isMainModule(import.meta.url)) {
       await runElaw(client, list(process.env.LAWGO_ELAW_MST), save, log);
     } else if (process.env.LAWGO_MODE === 'law') {
       await runLaw(client, list(process.env.LAWGO_LAW_IDS), save, log);
+    } else if (process.env.LAWGO_MODE === 'conditions') {
+      await runConditions(client, new GcsNameIndexStore(bucket), log);
     } else {
       const ok = await runCheck(client, oc, save, log, { probe: () => probeHomepage() });
       if (!ok) process.exit(2);
