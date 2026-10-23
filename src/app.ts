@@ -31,10 +31,12 @@ import { buildLlmsTxt, buildX402Manifest } from './discovery.js';
 import { hsGuard, IMPORT_REQUIREMENTS_PATH } from './hs-guard.js';
 import { normalizeHsInput } from './hs-master.js';
 import { TEST_HS_CODE } from './import-requirements.js';
+import { IMPORT_BATCH_PATH, type ClassifiedBatch } from './import-batch.js';
 import { isTestBusinessNumber } from './normalize.js';
 import type { Deps } from './service.js';
 
 const IMPORT_ROUTE_KEY = `GET ${IMPORT_REQUIREMENTS_PATH}` as const;
+const IMPORT_BATCH_ROUTE_KEY = `POST ${IMPORT_BATCH_PATH}` as const;
 
 export const MAX_BATCH_PRICE_ATOMIC = 100 * PRICE_PER_LOOKUP_ATOMIC; // $2.00 ceiling for "upto"
 
@@ -90,6 +92,11 @@ const BAZAAR_SEARCH = {
   tags: ['find-company-by-name', 'company-search', 'name-to-id', 'entity-resolution', 'korea'],
 };
 
+const BAZAAR_IMPORT_BATCH = {
+  serviceName: BAZAAR_SERVICE_NAME,
+  tags: ['catalog-screening', 'import-restrictions', 'customs-requirements', 'hs-code', 'korea'],
+};
+
 const BAZAAR_IMPORT = {
   serviceName: BAZAAR_SERVICE_NAME,
   tags: ['korea-import', 'customs-requirements', 'import-compliance', 'hs-code', 'korea'],
@@ -127,7 +134,7 @@ const SEARCH_EXAMPLE = {
  * Lookup units a request will consume from the free tier; null = unmetered
  * route, 0 = invalid input that the service will reject anyway (free).
  */
-function meteredUnits(req: express.Request, tradeDesk: boolean): number | null {
+function meteredUnits(req: express.Request, res: express.Response, tradeDesk: boolean): number | null {
   // Search is metered like a lookup, but its free tier returns a usable
   // answer (identity + confidence) rather than a 402 — see rest.ts.
   if (req.method === 'GET' && req.path === '/v1/business/search') return 1;
@@ -136,6 +143,15 @@ function meteredUnits(req: express.Request, tradeDesk: boolean): number | null {
   if (req.method === 'GET' && req.path === IMPORT_REQUIREMENTS_PATH) {
     if (!tradeDesk) return null;
     return normalizeHsInput(req.query.hs_code) === TEST_HS_CODE ? null : 1;
+  }
+  if (req.method === 'POST' && req.path === IMPORT_BATCH_PATH) {
+    if (!tradeDesk) return null;
+    // hsGuard has classified the codes: invalid ones and the test code are not
+    // billable. The same count drives the free tier here and the settlement in
+    // the handler — one number, so the two cannot disagree (the 10/1 bug).
+    const batch = res.locals.hsBatch as ClassifiedBatch | undefined;
+    if (!batch) return 0;
+    return batch.billable === 0 ? null : batch.billable;
   }
   if (req.method === 'GET' && STATUS_PATH.test(req.path)) {
     // The documented test number is free and unlimited, so wiring up a client
@@ -212,6 +228,38 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
               hs_code: { type: 'string', description: '10-digit Korean HS (HSK) code; dots/hyphens allowed' },
             },
             required: ['hs_code'],
+          },
+        }),
+      },
+    };
+    const importBatchRoute = {
+      // "upto": the client authorizes $2.00; the handler settles $0.02 per
+      // valid code actually looked up.
+      accepts: [{ scheme: 'upto', price: '$2.00', network, payTo }],
+      description:
+        'Screen a product catalog for Korean import restrictions in one call. Submit up to 100 HS codes and get ' +
+        'back what is restricted, with the statute, the approving agencies and the certificate required for each. ' +
+        'Use before opening a Korea shipping lane or listing a catalog for Korean buyers. $0.02 per valid code; ' +
+        'invalid codes are reported, not charged.',
+      mimeType: 'application/json',
+      ...BAZAAR_IMPORT_BATCH,
+      extensions: {
+        ...declareEip2612GasSponsoringExtension(),
+        ...declareDiscoveryExtension({
+          bodyType: 'json',
+          input: { hs_codes: ['8516710000', '7318152000'] },
+          inputSchema: {
+            properties: {
+              hs_codes: {
+                type: 'array',
+                items: { type: 'string' },
+                minItems: 1,
+                maxItems: 100,
+                description: '1-100 Korean 10-digit HS (HSK) codes; dots/hyphens allowed',
+              },
+              direction: { type: 'string', enum: ['import', 'export'], description: 'Default "import"' },
+            },
+            required: ['hs_codes'],
           },
         }),
       },
@@ -334,12 +382,13 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
       },
     };
     // The import-requirements route is listed only behind the stage flag.
-    const routes = x402.tradeDesk ? { [IMPORT_ROUTE_KEY]: importRoute, ...baseRoutes } : baseRoutes;
+    const routes = x402.tradeDesk ? { [IMPORT_ROUTE_KEY]: importRoute, [IMPORT_BATCH_ROUTE_KEY]: importBatchRoute, ...baseRoutes } : baseRoutes;
     // The manifest is generated from this very route table, so a price can
     // never drift between a 402 response and what discovery advertises.
     const manifest = buildX402Manifest({ routes, updated: new Date().toISOString() });
     // Same table, same prices: llms.txt can no longer drift from the 402s.
-    llmsTxt = buildLlmsTxt(routes, { 'POST /v1/business/batch': `$${(PRICE_PER_LOOKUP_ATOMIC / 1_000_000).toFixed(2)} per number` });
+    const unit = `$${(PRICE_PER_LOOKUP_ATOMIC / 1_000_000).toFixed(2)}`;
+    llmsTxt = buildLlmsTxt(routes, { 'POST /v1/business/batch': `${unit} per number`, [IMPORT_BATCH_ROUTE_KEY]: `${unit} per valid HS code` });
     app.get('/.well-known/x402', (_req, res) => {
       res.type('application/json').set('Cache-Control', 'public, max-age=3600').json(manifest);
     });
@@ -354,7 +403,7 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
     const paid = paymentMiddleware(routes, resourceServer);
 
     app.use((req, res, next) => {
-      const units = meteredUnits(req, x402.tradeDesk === true);
+      const units = meteredUnits(req, res, x402.tradeDesk === true);
       if (units === null || units === 0) {
         next();
         return;

@@ -142,7 +142,7 @@ describe('HTTP surface', () => {
     const manifest = (await (await fetch(`${base}/.well-known/x402`)).json()) as {
       resources: { url: string; method?: string; accepts: { scheme: string; price: string }[] }[];
     };
-    expect(manifest.resources.length).toBe(5);
+    expect(manifest.resources.length).toBe(6);
     for (const r of manifest.resources) {
       const path = new URL(r.url).pathname;
       const line = llms.split('\n').find((l) => l.includes(` ${path} — `));
@@ -150,6 +150,7 @@ describe('HTTP surface', () => {
       expect(line).toContain(r.accepts[0].price);
     }
     expect(llms).toContain('GET /v1/korea-import/requirements — $0.03');
+    expect(llms).toContain('POST /v1/korea-import/requirements/batch — $0.02 per valid HS code, authorized up to $2.00 per call');
     expect(llms).toContain('POST /v1/business/batch — $0.02 per number, authorized up to $2.00 per call');
     expect(llms).not.toMatch(/Paid: search \$0\.02/); // the retired hand-written line
   });

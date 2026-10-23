@@ -13,6 +13,7 @@
 
 import type { RequestHandler } from 'express';
 import type { HsMaster } from './hs-master.js';
+import { classifyHsCodes, IMPORT_BATCH_PATH, MAX_HS_BATCH } from './import-batch.js';
 
 export const IMPORT_REQUIREMENTS_PATH = '/v1/korea-import/requirements';
 
@@ -28,7 +29,65 @@ export interface HsGuardOptions {
 
 export function hsGuard(opts: HsGuardOptions): RequestHandler {
   const today = opts.today ?? (() => new Date().toISOString().slice(0, 10));
+
+  /**
+   * Batch: the shape is checked and every code classified before payment.
+   * Invalid codes do not fail the call — they are set aside, unbilled, and
+   * reported. Only a batch with no valid code at all is refused (400, free).
+   */
+  const guardBatch: RequestHandler = async (req, res, next) => {
+    const body = req.body as { hs_codes?: unknown; direction?: unknown } | undefined;
+    const codes = body?.hs_codes;
+    if (!Array.isArray(codes) || codes.length === 0 || !codes.every((c) => typeof c === 'string')) {
+      opts.log?.({ outcome: 'invalid_input' });
+      res.status(400).json({ error: 'invalid_request', message: 'Body must be {"hs_codes": [string, ...], "direction"?: "import"|"export"} with 1-100 codes.' });
+      return;
+    }
+    if (codes.length > MAX_HS_BATCH) {
+      opts.log?.({ outcome: 'invalid_input' });
+      res.status(400).json({
+        error: 'batch_limit_exceeded',
+        message: `hs_codes accepts at most ${MAX_HS_BATCH} codes per call (got ${codes.length}). Nothing was charged.`,
+      });
+      return;
+    }
+    const direction = body?.direction ?? 'import';
+    if (direction !== 'import' && direction !== 'export') {
+      opts.log?.({ outcome: 'invalid_input' });
+      res.status(400).json({ error: 'invalid_input', message: '"direction" must be "import" or "export" (default "import").' });
+      return;
+    }
+    let master: HsMaster;
+    try {
+      master = await opts.loadMaster();
+    } catch {
+      opts.log?.({ outcome: 'hs_master_unavailable' });
+      res.status(503).json({
+        error: 'hs_master_unavailable',
+        message: 'The HS code table could not be loaded, so the codes cannot be validated. Retry shortly.',
+      });
+      return;
+    }
+    const date = today();
+    const batch = classifyHsCodes(master, codes as string[], date);
+    opts.log?.({ outcome: batch.valid.length ? 'ok' : 'hs_code_not_found', stale_master: master.isStale(date) || undefined });
+    if (batch.valid.length === 0) {
+      res.status(400).json({
+        error: 'no_valid_hs_codes',
+        message: 'None of the submitted codes is a current 10-digit Korean HS (HSK) code. Nothing was looked up and nothing was charged.',
+        invalid_hs: batch.invalid,
+      });
+      return;
+    }
+    res.locals.hsBatch = batch;
+    res.locals.direction = direction;
+    next();
+  };
   return async (req, res, next) => {
+    if (req.method === 'POST' && req.path === IMPORT_BATCH_PATH) {
+      await guardBatch(req, res, next);
+      return;
+    }
     if (req.method !== 'GET' || req.path !== IMPORT_REQUIREMENTS_PATH) {
       next();
       return;

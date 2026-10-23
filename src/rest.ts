@@ -26,6 +26,7 @@ import {
 import { isTestBusinessNumber, type StatusResult, type VerifyResult } from './normalize.js';
 import { IMPORT_REQUIREMENTS_PATH } from './hs-guard.js';
 import { importRequirements, TEST_HS_CODE, type ValidHs } from './import-requirements.js';
+import { IMPORT_BATCH_PATH, importRequirementsBatch, type ClassifiedBatch } from './import-batch.js';
 
 const HTTP_STATUS: Record<string, number> = {
   invalid_input: 400,
@@ -136,6 +137,22 @@ export function buildRestRouter(deps: Deps): Router {
       const full = res.locals.paid === true || hs.hs_code === TEST_HS_CODE;
       const out = await importRequirements(trade, hs, res.locals.direction === 'export' ? 'export' : 'import', { full });
       deps.log?.({ tool: 'rest_import_requirements', outcome: out.status === 200 ? 'ok' : 'upstream_unavailable', ms: Date.now() - started });
+      res.status(out.status).json(out.body);
+    });
+
+    // Catalog screening. hsGuard has classified the codes before payment;
+    // settlement is the codes actually looked up, at $0.02, test code free.
+    router.post(IMPORT_BATCH_PATH, async (_req, res) => {
+      const batch = res.locals.hsBatch as ClassifiedBatch | undefined;
+      if (!batch) {
+        res.status(503).json({ error: 'hs_master_unavailable', message: 'The HS codes could not be validated. Retry shortly.' });
+        return;
+      }
+      const started = Date.now();
+      const paid = res.locals.paid === true;
+      const out = await importRequirementsBatch(trade, batch, res.locals.direction === 'export' ? 'export' : 'import', { full: paid });
+      if (paid) setSettlementOverrides(res, { amount: String(out.charged * PRICE_PER_LOOKUP_ATOMIC) });
+      deps.log?.({ tool: 'rest_import_requirements_batch', outcome: out.status === 200 ? 'ok' : 'upstream_unavailable', ms: Date.now() - started });
       res.status(out.status).json(out.body);
     });
   }

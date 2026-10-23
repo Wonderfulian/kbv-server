@@ -11,6 +11,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { isTestBusinessNumber, SOURCE, TEST_BUSINESS_NUMBER, type StatusResult, type VerifyResult } from './normalize.js';
 import { importRequirements, TEST_HS_CODE } from './import-requirements.js';
+import { classifyHsCodes, importRequirementsBatch, MAX_HS_BATCH } from './import-batch.js';
 import {
   checkStatus,
   checkStatusBatch,
@@ -334,6 +335,62 @@ export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
           outcome: out.status === 200 ? 'ok' : 'upstream_unavailable',
           ms: Date.now() - started,
         });
+        return {
+          ...(out.status === 200 ? {} : { isError: true }),
+          content: [{ type: 'text', text: JSON.stringify(out.body, null, 2) }],
+          ...(out.status === 200 ? { structuredContent: out.body } : {}),
+        };
+      },
+    );
+
+    server.registerTool(
+      'check_korea_import_requirements_batch',
+      {
+        title: 'Screen a product catalog for Korean import restrictions',
+        description:
+          'Screen a product catalog for Korean import restrictions in one call. Submit up to 100 HS codes and get ' +
+          'back what is restricted, with the statute, the approving agencies and the certificate required for ' +
+          'each. Restricted codes come first, then codes that could not be checked, then clear ones. Invalid codes ' +
+          'are listed in summary.invalid_hs and not counted. Use before opening a Korea shipping lane or listing a ' +
+          'catalog for Korean buyers. Fact lookup only — not a legal customs determination.',
+        annotations: LOOKUP_TOOL_ANNOTATIONS,
+        inputSchema: {
+          hs_codes: z.array(z.string()).min(1).max(MAX_HS_BATCH).describe('1-100 Korean 10-digit HS (HSK) codes; dots/hyphens allowed'),
+          direction: z.enum(['import', 'export']).optional().describe('Default "import" (goods entering Korea)'),
+        },
+      },
+      async ({ hs_codes, direction }) => {
+        const tool = 'check_korea_import_requirements_batch';
+        const started = Date.now();
+        let master;
+        try {
+          master = await loadMaster();
+        } catch {
+          deps.log?.({ tool, outcome: 'upstream_unavailable', ms: Date.now() - started });
+          return errorResult('hs_master_unavailable', 'The HS code table could not be loaded, so the codes cannot be validated. Retry shortly.');
+        }
+        const batch = classifyHsCodes(master, hs_codes, trade.today?.() ?? new Date().toISOString().slice(0, 10));
+        if (batch.valid.length === 0) {
+          deps.log?.({ tool, outcome: 'invalid_input', ms: Date.now() - started });
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  { error: 'no_valid_hs_codes', message: 'None of the submitted codes is a current 10-digit Korean HS (HSK) code. Nothing was looked up.', invalid_hs: batch.invalid },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+        // One count for the allowance: valid codes, test code excluded — the same `billable` the REST settlement uses.
+        const gate = quotaGate(tool, batch.billable);
+        if (gate) return gate;
+        const out = await importRequirementsBatch(trade, batch, direction ?? 'import', { full: true });
+        deps.log?.({ tool, outcome: out.status === 200 ? 'ok' : 'upstream_unavailable', ms: Date.now() - started });
         return {
           ...(out.status === 200 ? {} : { isError: true }),
           content: [{ type: 'text', text: JSON.stringify(out.body, null, 2) }],
