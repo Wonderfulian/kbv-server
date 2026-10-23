@@ -11,6 +11,8 @@
 export const MAX_BATCH = 100; // NTS official limit: 100 records per request
 
 const DEFAULT_BASE_URL = 'https://api.odcloud.kr/api/nts-businessman/v1';
+/** For a keyless reachability probe (any HTTP answer means the host is reachable). */
+export const NTS_PROBE_URL = `${DEFAULT_BASE_URL}/status`;
 const DEFAULT_TIMEOUT_MS = 5000;
 const RETRY_DELAY_MS = 250;
 

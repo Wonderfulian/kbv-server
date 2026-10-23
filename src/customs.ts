@@ -32,6 +32,10 @@ export interface CustomsRequirementRow {
 
 export class CustomsError extends Error {}
 
+export type CustomsFailure = 'network' | 'upstream';
+/** Host of the requirements API, for a keyless reachability probe. */
+export const CUSTOMS_PROBE_URL = ENDPOINT;
+
 export interface CustomsClient {
   requirements(hs: string, direction: Direction): Promise<CustomsRequirementRow[]>;
 }
@@ -68,13 +72,20 @@ export function createCustomsClient(opts: {
   fetchFn?: typeof fetch;
   timeoutMs?: number;
   retry?: RetryOptions;
-  onLatency?: (ms: number, ok: boolean) => void;
+  /**
+   * `failure` on errors: "network" when no HTTP response came back at all
+   * (connect/timeout — the signal for a broken instance egress), "upstream"
+   * when the host answered with an error (it was reachable).
+   */
+  onLatency?: (ms: number, ok: boolean, failure?: CustomsFailure) => void;
 }): CustomsClient {
   if (!opts.serviceKey) throw new CustomsError('customs client needs the data.go.kr service key');
   const fetchFn = opts.fetchFn ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 15_000;
 
+  let lastFailure: CustomsFailure = 'upstream';
   async function once(hs: string, direction: Direction): Promise<CustomsRequirementRow[]> {
+    lastFailure = 'upstream';
     const qs = new URLSearchParams({ serviceKey: opts.serviceKey, hsSgn: hs, imexTpcd: direction === 'export' ? '1' : '2' });
     let res: Response;
     try {
@@ -82,6 +93,7 @@ export function createCustomsClient(opts: {
     } catch (err) {
       // Deliberately no URL and no upstream message here: both can carry the key.
       const cause = (err as { cause?: { code?: string } }).cause?.code;
+      lastFailure = 'network';
       throw new RetryableError(`customs API request failed${cause ? ` (${cause})` : ''}`);
     }
     if (res.status >= 500) throw new RetryableError(`customs API HTTP ${res.status}`);
@@ -97,7 +109,7 @@ export function createCustomsClient(opts: {
         opts.onLatency?.(Date.now() - started, true);
         return rows;
       } catch (err) {
-        opts.onLatency?.(Date.now() - started, false);
+        opts.onLatency?.(Date.now() - started, false, lastFailure);
         if (err instanceof RetryableError) throw new CustomsError(err.message);
         throw err;
       }

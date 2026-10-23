@@ -9,13 +9,15 @@ import dotenv from 'dotenv';
 import { buildApp, type X402Options } from './app.js';
 import { createCache } from './cache.js';
 import { createDartClient } from './dart.js';
-import { createCustomsClient } from './customs.js';
+import { createCustomsClient, CUSTOMS_PROBE_URL } from './customs.js';
+import { createEgressGuard, probeHost } from './egress-guard.js';
+import type { Server } from 'node:http';
 import { CONDITIONS_PATH, ConditionsIndex, NOTICE_WATCH_PATH, WATCH_STALE_DAYS, type ConditionsFile, type NoticeWatchFile } from './hs-conditions.js';
 import { HS_MASTER_PATH, HsMaster, type HsMasterFile } from './hs-master.js';
 import type { TradeDeps } from './import-requirements.js';
 import { ITEM_NAMES_PATH, TARIFF_PATH, TariffIndex, type ItemNamesFile, type TariffFile } from './tariff.js';
 import { GcsNameIndexStore } from './name-index-store.js';
-import { createNtsClient } from './nts.js';
+import { createNtsClient, NTS_PROBE_URL } from './nts.js';
 import { createSanctionsLookup, type SanctionsFile } from './sanctions.js';
 import { memoizeIndex, searchBusinesses } from './search.js';
 import type { Deps } from './service.js';
@@ -166,11 +168,45 @@ const hsMaster = tradeBucket
     }))
   : undefined;
 
+/**
+ * Self-healing for a lost route to the customs host (see egress-guard.ts):
+ * 3 consecutive network failures (each already 3 attempts) → probe both
+ * hosts; exit only when customs is unreachable and NTS is reachable, after
+ * 10 minutes of uptime, at most once per 30 minutes across the fleet.
+ */
+const SELF_EXIT_MARKER = 'ops/self-exit.json';
+const SELF_EXIT_INTERVAL_MS = 30 * 60 * 1000;
+const egressGuard = tradeBucket
+  ? createEgressGuard({
+      threshold: 3,
+      minUptimeMs: 10 * 60 * 1000,
+      probeCustoms: () => probeHost(CUSTOMS_PROBE_URL),
+      probeNts: () => probeHost(NTS_PROBE_URL),
+      claimExit: async () => {
+        const store = new GcsNameIndexStore(tradeBucket);
+        const last = await store.readJson<{ at: string }>(SELF_EXIT_MARKER);
+        if (last && Date.now() - Date.parse(last.at) < SELF_EXIT_INTERVAL_MS) return false;
+        await store.writeJson(SELF_EXIT_MARKER, { at: new Date().toISOString(), reason: 'customs host unreachable, NTS reachable' });
+        return true;
+      },
+      uptimeMs: () => process.uptime() * 1000,
+      log: (info) => console.log(JSON.stringify(info)),
+      terminate: () => {
+        // Stop taking requests, let in-flight ones finish, then exit; Cloud Run replaces the instance.
+        server?.close(() => process.exit(1));
+        setTimeout(() => process.exit(1), 10_000).unref();
+      },
+    })
+  : undefined;
+
 const trade: TradeDeps | undefined = tradeBucket
   ? {
       customs: createCustomsClient({
         serviceKey,
-        onLatency: (ms, ok) => console.log(JSON.stringify({ event: 'customs_call', ms, ok })),
+        onLatency: (ms, ok, failure) => {
+          console.log(JSON.stringify({ event: 'customs_call', ms, ok, ...(failure ? { failure } : {}) }));
+          egressGuard?.record(ok, failure);
+        },
       }),
       // Re-read every 6 h: kbv-lawgo's daily watch rewrites it when the notice is amended.
       conditions: lazyFromBucket<ConditionsFile, ConditionsIndex>(
@@ -242,10 +278,11 @@ console.log(
 );
 
 export const app = buildApp(deps, x402);
+let server: Server | undefined;
 
 if (!process.env.VITEST) {
   const port = Number(process.env.PORT ?? 8080);
-  app.listen(port, '0.0.0.0', () => {
+  server = app.listen(port, '0.0.0.0', () => {
     console.log(JSON.stringify({ event: 'listening', port }));
   });
 }
