@@ -123,7 +123,10 @@ export async function importRequirementsBatch(
   const charged = items.filter((it) => it.status === 200 && it.hs.hs_code !== TEST_HS_CODE).length;
   const body: Record<string, unknown> = {
     direction,
-    ...(opts.full ? {} : { detail: 'summary', detail_note: 'Statutes, agencies, certificates and quoted conditions are in the paid response (x402).' }),
+    // Only when some item really is a summary: the test code is always answered in full.
+    ...(opts.full || !batch.valid.some((h) => h.hs_code !== TEST_HS_CODE)
+      ? {}
+      : { detail: 'summary', detail_note: 'Statutes, agencies, certificates and quoted conditions are in the paid response (x402).' }),
     results,
     summary: {
       total: batch.valid.length + batch.invalid.length + batch.duplicates,

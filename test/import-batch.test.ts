@@ -198,7 +198,10 @@ describe('REST route', () => {
     const { url } = await start(0); // no free tier at all
     const res = await post(url, { hs_codes: [TEST_HS_CODE, '9999999999'] });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { summary: { invalid_hs: unknown[] } }).summary.invalid_hs).toHaveLength(1);
+    const body = (await res.json()) as { summary: { invalid_hs: unknown[] }; results: Record<string, unknown>[] };
+    expect(body.summary.invalid_hs).toHaveLength(1);
+    expect(body).not.toHaveProperty('detail'); // the test code is answered in full, so nothing is a summary
+    expect(body.results[0]).toHaveProperty('requirements');
   });
 
   it('spends the free tier by the same count it would bill: valid, non-test codes only', async () => {
