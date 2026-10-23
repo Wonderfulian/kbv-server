@@ -80,17 +80,49 @@ const sanctions = indexBucket
  * failed load is not cached, so the next request retries instead of the route
  * staying down until a restart.
  */
-function lazyFromBucket<F, T>(bucket: string, path: string, name: string, build: (file: F) => T, describe: (file: F) => Record<string, unknown>) {
+/**
+ * Loads an index from the bucket on first use. With `maxAgeMs`, a request
+ * after that age starts a reload in the background and keeps answering from
+ * the copy it has until the new one is ready — for files a job rewrites in
+ * place (the condition index, rebuilt when the notice is amended), which a
+ * long-lived instance would otherwise never see.
+ */
+function lazyFromBucket<F, T>(
+  bucket: string,
+  path: string,
+  name: string,
+  build: (file: F) => T,
+  describe: (file: F) => Record<string, unknown>,
+  maxAgeMs?: number,
+) {
   let loading: Promise<T> | undefined;
+  let loadedAt = 0;
+  let refreshing = false;
+  const load = async () => {
+    const started = Date.now();
+    const file = await new GcsNameIndexStore(bucket).readJson<F>(path);
+    if (!file) throw new Error(`${path} is missing from the index bucket`);
+    const out = build(file);
+    loadedAt = Date.now();
+    console.log(JSON.stringify({ event: `${name}_loaded`, ...describe(file), ms: Date.now() - started }));
+    return out;
+  };
   return () => {
-    loading ??= (async () => {
-      const started = Date.now();
-      const file = await new GcsNameIndexStore(bucket).readJson<F>(path);
-      if (!file) throw new Error(`${path} is missing from the index bucket`);
-      const out = build(file);
-      console.log(JSON.stringify({ event: `${name}_loaded`, ...describe(file), ms: Date.now() - started }));
-      return out;
-    })().catch((err: unknown) => {
+    if (loading && maxAgeMs && !refreshing && loadedAt && Date.now() - loadedAt > maxAgeMs) {
+      refreshing = true;
+      load()
+        .then((fresh) => {
+          loading = Promise.resolve(fresh);
+        })
+        .catch((err: unknown) => {
+          loadedAt = Date.now(); // keep the old copy; try again after another interval
+          console.error(JSON.stringify({ event: `${name}_reload_failed`, error: (err as Error).message }));
+        })
+        .finally(() => {
+          refreshing = false;
+        });
+    }
+    loading ??= load().catch((err: unknown) => {
       loading = undefined;
       console.error(JSON.stringify({ event: `${name}_load_failed`, error: (err as Error).message }));
       throw err;
@@ -118,10 +150,15 @@ const trade: TradeDeps | undefined = tradeBucket
         serviceKey,
         onLatency: (ms, ok) => console.log(JSON.stringify({ event: 'customs_call', ms, ok })),
       }),
-      conditions: lazyFromBucket<ConditionsFile, ConditionsIndex>(tradeBucket, CONDITIONS_PATH, 'conditions', (f) => new ConditionsIndex(f), (f) => ({
-        notice_no: f.notice.notice_no,
-        effective_from: f.notice.effective_from,
-      })),
+      // Re-read every 6 h: kbv-lawgo's daily watch rewrites it when the notice is amended.
+      conditions: lazyFromBucket<ConditionsFile, ConditionsIndex>(
+        tradeBucket,
+        CONDITIONS_PATH,
+        'conditions',
+        (f) => new ConditionsIndex(f),
+        (f) => ({ notice_no: f.notice.notice_no, effective_from: f.notice.effective_from, statute_groups: Boolean(f.statute_groups) }),
+        6 * 60 * 60 * 1000,
+      ),
       tariff: lazyFromBucket<TariffFile, TariffIndex>(tradeBucket, TARIFF_PATH, 'tariff', (f) => new TariffIndex(f), (f) => ({
         file_name: f.file_name,
       })),
