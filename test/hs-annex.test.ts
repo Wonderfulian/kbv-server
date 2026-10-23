@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { annexLines, indexAnnexRows, ConditionsIndex, type ConditionsFile, type NoticeInfo } from '../src/hs-conditions.js';
+import { annexLines, indexAnnexRows, ConditionsIndex, NOTICE_WATCH_PATH, watchAgeDays, type ConditionsFile, type NoticeInfo } from '../src/hs-conditions.js';
 import { runWatch } from '../src/lawgo-job.js';
 import type { LawGoClient } from '../src/lawgo.js';
 import type { NameIndexStore } from '../src/name-index-store.js';
@@ -107,38 +107,76 @@ describe('runWatch (amendment detection)', () => {
       throw new Error('not used');
     },
   });
+  const written: Record<string, unknown> = {};
   const store = (file: Partial<ConditionsFile> | null): NameIndexStore =>
     ({
       async readJson() {
         return file;
       },
+      async writeJson(path: string, data: unknown) {
+        written[path] = data;
+      },
     }) as unknown as NameIndexStore;
   const notice = (serial: string): NoticeInfo => ({ name_ko: 'n', notice_no: '제2026-46호', effective_from: '2026-07-16', serial, url: 'u' });
   const groups = { import: {}, export: {}, unresolved: [] };
+  const rebuiltAs = (serial: string) => ({ notice: notice(serial) }) as ConditionsFile;
+  const NOW = () => new Date('2026-10-24T01:50:00Z');
 
   it('does nothing but log when the notice in force is the one indexed', async () => {
     const logs: Record<string, unknown>[] = [];
     let rebuilt = 0;
-    const out = await runWatch(client('2100000282502'), store({ notice: notice('2100000282502'), statute_groups: groups }), (l) => logs.push(l), async () => (rebuilt++, {} as ConditionsFile));
+    const out = await runWatch(client('2100000282502'), store({ notice: notice('2100000282502'), statute_groups: groups }), (l) => logs.push(l), async () => (rebuilt++, rebuiltAs('x')), NOW);
     expect(out.changed).toBe(false);
     expect(rebuilt).toBe(0);
     expect(logs[0]).toMatchObject({ event: 'notice_watch', changed: false, live: { serial: '2100000282502' } });
+    // The freshness record is written on every successful check, not only on change.
+    expect(written[NOTICE_WATCH_PATH]).toEqual({
+      checked_at: '2026-10-24T01:50:00.000Z',
+      live_serial: '2100000282502',
+      live_notice_no: '제2026-46호',
+      indexed_serial: '2100000282502',
+      rebuilt: false,
+    });
   });
 
   it('rebuilds when the notice was amended', async () => {
     const logs: Record<string, unknown>[] = [];
     let rebuilt = 0;
-    const out = await runWatch(client('2100000999999'), store({ notice: notice('2100000282502'), statute_groups: groups }), (l) => logs.push(l), async () => (rebuilt++, {} as ConditionsFile));
+    const out = await runWatch(client('2100000999999'), store({ notice: notice('2100000282502'), statute_groups: groups }), (l) => logs.push(l), async () => (rebuilt++, rebuiltAs('2100000999999')), NOW);
     expect(out.changed).toBe(true);
     expect(rebuilt).toBe(1);
+    expect(written[NOTICE_WATCH_PATH]).toMatchObject({ indexed_serial: '2100000999999', rebuilt: true });
     expect(logs[0]).toMatchObject({ changed: true, live: { serial: '2100000999999' }, indexed: { serial: '2100000282502' } });
+  });
+
+  it('leaves the previous record untouched when law.go.kr does not answer', async () => {
+    delete written[NOTICE_WATCH_PATH];
+    const down: LawGoClient = {
+      async search() {
+        throw new Error('fetch failed');
+      },
+      async service() {
+        throw new Error('not used');
+      },
+    };
+    await expect(runWatch(down, store({ notice: notice('2100000282502'), statute_groups: groups }), () => {}, async () => rebuiltAs('x'), NOW)).rejects.toThrow();
+    expect(written[NOTICE_WATCH_PATH]).toBeUndefined(); // so the last success keeps aging
   });
 
   it('rebuilds an index from before statute groups existed, and when there is no index at all', async () => {
     let rebuilt = 0;
-    const rebuild = async () => (rebuilt++, {} as ConditionsFile);
+    const rebuild = async () => (rebuilt++, rebuiltAs('2100000282502'));
     await runWatch(client('2100000282502'), store({ notice: notice('2100000282502') }), () => {}, rebuild);
     await runWatch(client('2100000282502'), store(null), () => {}, rebuild);
     expect(rebuilt).toBe(2);
+  });
+});
+
+describe('watchAgeDays', () => {
+  it('counts whole days since the last successful check', () => {
+    const w = { checked_at: '2026-10-20T01:50:00Z', live_serial: 's', live_notice_no: 'n', indexed_serial: 's', rebuilt: false };
+    expect(watchAgeDays(w, new Date('2026-10-23T01:49:00Z'))).toBe(2);
+    expect(watchAgeDays(w, new Date('2026-10-23T01:51:00Z'))).toBe(3);
+    expect(watchAgeDays(null, new Date())).toBeNull();
   });
 });

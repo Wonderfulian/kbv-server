@@ -10,7 +10,7 @@ import { buildApp, type X402Options } from './app.js';
 import { createCache } from './cache.js';
 import { createDartClient } from './dart.js';
 import { createCustomsClient } from './customs.js';
-import { CONDITIONS_PATH, ConditionsIndex, type ConditionsFile } from './hs-conditions.js';
+import { CONDITIONS_PATH, ConditionsIndex, NOTICE_WATCH_PATH, WATCH_STALE_DAYS, type ConditionsFile, type NoticeWatchFile } from './hs-conditions.js';
 import { HS_MASTER_PATH, HsMaster, type HsMasterFile } from './hs-master.js';
 import type { TradeDeps } from './import-requirements.js';
 import { ITEM_NAMES_PATH, TARIFF_PATH, TariffIndex, type ItemNamesFile, type TariffFile } from './tariff.js';
@@ -131,6 +131,28 @@ function lazyFromBucket<F, T>(
   };
 }
 
+/** hs/notice-watch.json, re-read hourly; null when no watch has succeeded yet. */
+function noticeWatchLoader(bucket: string) {
+  let cached: { at: number; value: Promise<NoticeWatchFile | null> } | undefined;
+  return () => {
+    if (!cached || Date.now() - cached.at > 60 * 60 * 1000) {
+      const value = new GcsNameIndexStore(bucket).readJson<NoticeWatchFile>(NOTICE_WATCH_PATH);
+      cached = { at: Date.now(), value };
+      value.catch(() => (cached = undefined));
+    }
+    return cached.value;
+  };
+}
+
+function throttleHourly<A extends unknown[]>(fn: (...args: A) => void): (...args: A) => void {
+  let last = 0;
+  return (...args) => {
+    if (Date.now() - last < 60 * 60 * 1000) return;
+    last = Date.now();
+    fn(...args);
+  };
+}
+
 // Everything below is mounted only with the stage flag: until the route ships,
 // its path must not answer at all — HS codes in its URL reach the access log,
 // and the privacy notes say so only together with the route.
@@ -169,6 +191,11 @@ const trade: TradeDeps | undefined = tradeBucket
       // that the dictionary does not know; review_due means the notice was revised.
       onDictMiss: (m) => console.log(JSON.stringify({ event: 'dict_miss', ...m })),
       onReviewDue: (aply) => console.log(JSON.stringify({ event: 'dict_review_due', aply_strt_dt: aply })),
+      noticeWatch: noticeWatchLoader(tradeBucket),
+      // Severity WARNING so it stands out in the log viewer; at most once an hour per instance.
+      onWatchStale: throttleHourly((days) =>
+        console.warn(JSON.stringify({ severity: 'WARNING', event: 'notice_watch_stale', days_since_check: days, threshold_days: WATCH_STALE_DAYS })),
+      ),
     }
   : undefined;
 

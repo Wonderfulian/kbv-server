@@ -156,6 +156,33 @@ describe('importRequirements (service)', () => {
     expect(out.body.attribution).toMatch(/law\.go\.kr/);
   });
 
+  it('states which notice revision the conditions come from and when it was last confirmed in force', async () => {
+    const watch = (checked_at: string) => async () => ({ checked_at, live_serial: '2100000282502', live_notice_no: '제2026-46호', indexed_serial: '2100000282502', rebuilt: false });
+    const stale: (number | null)[] = [];
+    const run = async (extra: Partial<TradeDeps>, full = true) =>
+      (await importRequirements(tradeDeps({ '8516710000': COFFEE }, { onWatchStale: (d) => stale.push(d), ...extra }), COFFEE_HS, 'import', { full })).body;
+    // now() is 2026-10-22T00:00Z in these fixtures.
+    const fresh = (await run({ noticeWatch: watch('2026-10-21T01:50:00Z') })).governing_notice as Record<string, unknown>;
+    expect(fresh.index).toEqual({ notice_serial: '2100000282502', built_at: '2026-10-22T00:00:00Z', last_checked_at: '2026-10-21T01:50:00Z', check_status: 'current' });
+    expect(stale).toEqual([]);
+
+    const old = (await run({ noticeWatch: watch('2026-10-18T01:50:00Z') })).governing_notice as Record<string, unknown>;
+    expect(old.index).toMatchObject({ check_status: 'check_overdue', last_checked_at: '2026-10-18T01:50:00Z' });
+    expect((old.index as Record<string, string>).check_note).toMatch(/not been re-checked against law\.go\.kr for 3 days/);
+    expect(stale).toEqual([3]);
+
+    const never = (await run({ noticeWatch: async () => null })).governing_notice as Record<string, unknown>;
+    expect(never.index).toMatchObject({ check_status: 'never_checked', last_checked_at: null });
+    expect(stale).toEqual([3, null]);
+
+    const unreadable = (await run({ noticeWatch: async () => { throw new Error('gcs down'); } })).governing_notice as Record<string, unknown>;
+    expect(unreadable.index).toMatchObject({ check_status: 'unknown' });
+    expect(stale).toEqual([3, null]); // not reading the record is not evidence of staleness
+
+    // The free summary carries no quoted conditions, so it does not load or report this.
+    expect(await run({ noticeWatch: watch('2026-10-18T01:50:00Z') }, false)).not.toHaveProperty('governing_notice');
+  });
+
   it('never decides whether a condition applies', async () => {
     const out = await importRequirements(tradeDeps({ '8516710000': COFFEE }), COFFEE_HS, 'import', { full: true });
     expect(JSON.stringify(out.body)).not.toMatch(/"applies"\s*:|"applicable"\s*:|"meets"\s*:/);

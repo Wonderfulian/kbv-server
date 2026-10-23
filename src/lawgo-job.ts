@@ -29,7 +29,9 @@ import {
   ConditionsError,
   indexAnnexRows,
   indexConditionRows,
+  NOTICE_WATCH_PATH,
   type ConditionsFile,
+  type NoticeWatchFile,
   type NoticeInfo,
 } from './hs-conditions.js';
 import { createLawGoClient, describeNetworkError, LawGoError, maskOc, xmlText, type LawGoClient } from './lawgo.js';
@@ -254,6 +256,7 @@ export async function runWatch(
   store: NameIndexStore,
   log: Log,
   rebuild: () => Promise<ConditionsFile> = () => runConditions(client, store, log),
+  now: () => Date = () => new Date(),
 ): Promise<{ changed: boolean }> {
   const live = await currentNotice(client);
   const built = await store.readJson<ConditionsFile>(CONDITIONS_PATH);
@@ -266,7 +269,17 @@ export async function runWatch(
     indexed: was ? { serial: was.serial, notice_no: was.notice_no, effective_from: was.effective_from } : null,
     ...(was && was.serial === live.serial && !built?.statute_groups ? { reason: 'index predates statute groups' } : {}),
   });
-  if (changed) await rebuild();
+  const after = changed ? (await rebuild()).notice : was!;
+  // The freshness record: only written once law.go.kr has answered, so a run
+  // that times out leaves the previous timestamp to age.
+  const record: NoticeWatchFile = {
+    checked_at: now().toISOString(),
+    live_serial: live.serial,
+    live_notice_no: live.notice_no,
+    indexed_serial: after.serial,
+    rebuilt: changed,
+  };
+  await store.writeJson(NOTICE_WATCH_PATH, record);
   return { changed };
 }
 

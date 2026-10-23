@@ -19,7 +19,7 @@
  */
 
 import type { CustomsClient, CustomsRequirementRow, Direction } from './customs.js';
-import type { ConditionsIndex, NoticeInfo } from './hs-conditions.js';
+import { WATCH_STALE_DAYS, watchAgeDays, type ConditionsIndex, type NoticeInfo, type NoticeWatchFile } from './hs-conditions.js';
 import { LAWGO_ATTRIBUTION } from './lawgo.js';
 import { DOCUMENTED_RATE_TYPES, TARIFF_DATASET_URL, itemPath, type ItemNamesFile, type TariffIndex } from './tariff.js';
 import {
@@ -69,6 +69,10 @@ export interface TradeDeps {
   onDictMiss?: (m: DictMiss) => void;
   /** A requirement dated after the notice revision the dictionary was reviewed against. */
   onReviewDue?: (aplyStrtDt: string) => void;
+  /** Last successful amendment watch (hs/notice-watch.json). */
+  noticeWatch?: () => Promise<NoticeWatchFile | null>;
+  /** The watch has not succeeded for WATCH_STALE_DAYS or more (null days = never). */
+  onWatchStale?: (days: number | null) => void;
 }
 
 export interface ValidHs {
@@ -181,6 +185,32 @@ function groupRequirements(
   return { requirements, quoted };
 }
 
+/**
+ * Which notice revision the quoted conditions come from, and when law.go.kr
+ * last confirmed that revision is still the one in force. A daily check that
+ * keeps failing would otherwise let the index age silently.
+ */
+function indexFreshness(conditions: ConditionsIndex, watch: NoticeWatchFile | null | undefined, now: Date, onStale?: (days: number | null) => void) {
+  const base = { notice_serial: conditions.file.notice.serial, built_at: conditions.file.built_at };
+  // undefined: the record could not be read right now — say so, don't guess.
+  if (watch === undefined) return { ...base, last_checked_at: null, check_status: 'unknown' };
+  const days = watchAgeDays(watch, now);
+  const overdue = days === null || days >= WATCH_STALE_DAYS;
+  if (overdue) onStale?.(days);
+  return {
+    ...base,
+    last_checked_at: watch?.checked_at ?? null,
+    check_status: watch === null ? 'never_checked' : overdue ? 'check_overdue' : 'current',
+    ...(overdue
+      ? {
+          check_note:
+            `The notice in force has not been re-checked against law.go.kr for ${days === null ? 'an unknown period' : `${days} days`}. ` +
+            'The quoted conditions may predate an amendment — open the notice link to confirm before relying on them.',
+        }
+      : {}),
+  };
+}
+
 function tariffField(tariff: TariffIndex | undefined, hs: string, direction: Direction, today: string) {
   if (direction === 'export') return { tariff: null, tariff_note: 'Tariff rates are import duties and are not given for exports.' };
   if (!tariff) return { tariff: null, tariff_note: 'The tariff index is unavailable right now.' };
@@ -235,10 +265,11 @@ export async function importRequirements(
   opts: { full: boolean },
 ): Promise<TradeResult> {
   const today = deps.today?.() ?? new Date().toISOString().slice(0, 10);
-  const [conditions, tariff, names] = await Promise.all([
+  const [conditions, tariff, names, watch] = await Promise.all([
     optional(deps.conditions),
     optional(deps.tariff),
     optional(deps.itemNames),
+    opts.full ? optional(deps.noticeWatch) : undefined,
   ]);
   const base = {
     hs_code: hs.hs_code,
@@ -295,6 +326,7 @@ export async function importRequirements(
       notice_no: notice?.notice_no ?? null,
       effective_from: notice?.effective_from ?? REVIEW.notice_effective,
       url: NOTICE_URL,
+      ...(conditions ? { index: indexFreshness(conditions, watch, deps.now?.() ?? new Date(), deps.onWatchStale) } : {}),
     };
     body.names_note = KOREAN_NAMES_NOTE;
     if (quoted) body.attribution = LAWGO_ATTRIBUTION;

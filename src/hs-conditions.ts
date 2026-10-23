@@ -20,6 +20,31 @@
 import { lawIdForDamagedTitle, resolveStatute } from './trade-dict.js';
 
 export const CONDITIONS_PATH = 'hs/conditions.json';
+/** Written by every successful amendment watch, changed or not. */
+export const NOTICE_WATCH_PATH = 'hs/notice-watch.json';
+/**
+ * The watch runs daily. Three days without a successful check means
+ * consecutive failures, and the index may be falling behind the notice
+ * without anyone noticing — so responses and logs say so from then on.
+ */
+export const WATCH_STALE_DAYS = 3;
+
+export interface NoticeWatchFile {
+  /** When law.go.kr last answered the in-force check (ISO). */
+  checked_at: string;
+  /** The notice revision in force at that moment. */
+  live_serial: string;
+  live_notice_no: string;
+  /** The revision the condition index was built from, after any rebuild in that run. */
+  indexed_serial: string;
+  rebuilt: boolean;
+}
+
+/** Whole days since the last successful watch; null when it has never succeeded. */
+export function watchAgeDays(watch: NoticeWatchFile | null | undefined, now: Date): number | null {
+  if (!watch) return null;
+  return Math.floor((now.getTime() - Date.parse(watch.checked_at)) / 86_400_000);
+}
 
 export interface NoticeInfo {
   name_ko: string;
