@@ -294,7 +294,11 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
           output: {
             example: {
               direction: 'import',
-              results: [IMPORT_EXAMPLE, { hs_code: '7318152000', item_name_en: 'Bolts', has_requirements: false, requirement_count: 0, requirements: [] }],
+              // Kept short: the whole route declaration travels in the 402 header.
+              results: [
+                { hs_code: '8516710000', item_name_en: 'Coffee or tea makers', has_requirements: true, requirement_count: 3, requirements: ['…'] },
+                { hs_code: '7318152000', item_name_en: 'Bolts', has_requirements: false, requirement_count: 0, requirements: [] },
+              ],
               summary: {
                 total: 3,
                 checked: 2,
