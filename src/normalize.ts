@@ -6,8 +6,18 @@
 
 import type { NtsStatusItem } from './nts.js';
 
+/**
+ * `code` names the field at fault. Agents branch on the error code rather than
+ * the message, so a bad date must not come back as a bad number — a valid
+ * number reported as invalid sends the caller off retrying the wrong field.
+ */
+export type InvalidInputCode = 'invalid_business_number' | 'invalid_opening_date';
+
 export class InvalidInputError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly code: InvalidInputCode = 'invalid_business_number',
+  ) {
     super(message);
     this.name = 'InvalidInputError';
   }
@@ -72,7 +82,7 @@ export function toIsoDate(yyyymmdd: string | null | undefined): string | null {
 /** ISO "1999-05-01" → NTS "19990501". */
 export function toNtsDate(isoDate: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) {
-    throw new InvalidInputError('opening_date must be in YYYY-MM-DD format (e.g. "1999-05-01")');
+    throw new InvalidInputError('opening_date must be in YYYY-MM-DD format (e.g. "1999-05-01")', 'invalid_opening_date');
   }
   return isoDate.replace(/-/g, '');
 }

@@ -125,6 +125,21 @@ export function normalizeTitle(s: string): string {
   return s.replace(/[\s·ㆍ･・]/g, '');
 }
 
+/**
+ * Law ID for a title with a character lost to an encoding error ("제조?수출입",
+ * where the notice's own annex had a middle dot). "?" stands for at most one
+ * character — normalizeTitle drops middle dots, so it may stand for none —
+ * and the answer counts only if exactly one known title fits.
+ */
+export function lawIdForDamagedTitle(title: string): string | undefined {
+  const norm = normalizeTitle(title);
+  if (!norm.includes('?')) return undefined;
+  const escaped = norm.split('?').map((p) => p.replace(/[.*+^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`^${escaped.join('.?')}$`);
+  const hits = Object.entries(STATUTES_BY_TITLE).filter(([k]) => pattern.test(k));
+  return hits.length === 1 ? hits[0][1].law_id : undefined;
+}
+
 function statute(title: string, qualifier_ko?: string): StatuteEntry {
   const base = STATUTES_BY_TITLE[normalizeTitle(title)];
   if (!base) throw new Error(`trade-dict: no statute titled ${title}`);

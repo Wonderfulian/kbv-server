@@ -114,6 +114,19 @@ describe('GET /v1/business/:brno/status', () => {
     expect(state.statusCalls).toHaveLength(0);
   });
 
+  it('names the date, not the number, when only the opening date is malformed', async () => {
+    const res = await fetch(`${baseUrl}/v1/business/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // A placeholder copied verbatim from documentation: the number is fine.
+      body: JSON.stringify({ business_number: B_NO, representative_name: '홍길동', opening_date: '<YYYY-MM-DD from the counterparty>' }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: 'invalid_opening_date' });
+    expect(state.validateCalls).toHaveLength(0);
+  });
+
   it('maps unregistered numbers to not_registered with 200', async () => {
     state.statusItems = [UNREGISTERED_ITEM];
 

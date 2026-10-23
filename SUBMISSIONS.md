@@ -10,7 +10,7 @@
 **One-liner** (공식 레지스트리 100자 제한 대응):
 
 ```
-Find Korean companies by name, then verify them via NTS. 10 free calls/day, then pay-per-call (x402).
+Find Korean companies by name, then verify via NTS. ~10 free calls/day, then pay-per-call (x402).
 ```
 
 **Short blurb** (~160자):
@@ -22,7 +22,7 @@ Search 940k Korean companies by name (English or Korean) to get their registrati
 **Long description**:
 
 ```
-Korea Business Verify (KBV) is a hosted MCP server — 10 free calls/day, then pay-per-call via x402 — that finds and verifies Korean businesses in real time.
+Korea Business Verify (KBV) is a hosted MCP server — about 10 free calls/day, then pay-per-call via x402 — that finds and verifies Korean businesses in real time.
 
 You only need the company name. Search "Samsung Electronics" in English or Korean and KBV returns the matching companies with their 10-digit registration numbers (사업자등록번호), ranked by confidence with the evidence to tell them apart. Every other Korean business API assumes you already have that number, which a foreign agent rarely does. The index covers 940,000 companies: all DART disclosure filers (English names included) plus every registered public-procurement vendor, so small businesses are covered too.
 
@@ -39,7 +39,7 @@ Example prompts:
 - "Check the status of Korean business 124-81-00998."
 - "Verify that Korean business 214-87-12345 belongs to 홍길동, opened 2015-03-02."
 
-Privacy: KBV logs no query contents (business numbers, names, HS codes); a number, search term or HS code passed in a GET URL (status, search, import requirements) does appear in the cloud provider access log for 14 days, while POST and MCP calls send inputs in the request body and are not logged. Data license: Korean government open data, no usage restrictions. Pricing: 10 free calls/day per IP; beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
+Privacy: KBV logs no query contents (business numbers, names, HS codes); a number, search term or HS code passed in a GET URL (status, search, import requirements) does appear in the cloud provider access log for 14 days, while POST and MCP calls send inputs in the request body and are not logged. Data license: Korean government open data, no usage restrictions. Pricing: approximately 10 free calls/day per IP (not strictly enforced); beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
 ```
 
 **Tags / categories**:
@@ -113,7 +113,7 @@ business, verification, kyb, finance, government, korea, api, due-diligence
 **Transport:** Streamable HTTP
 **Authentication:** none — public, no API key required
 
-**Description:** Find a Korean company by name (English or Korean) to get its 10-digit business registration number (사업자등록번호), then check active/closed status, tax type, and KYB identity match. Data comes live from the Korea National Tax Service (NTS) official open-data API and is returned as clean, English-normalized JSON. No account, no API key, no installation — 10 free calls/day, then pay-per-call via x402.
+**Description:** Find a Korean company by name (English or Korean) to get its 10-digit business registration number (사업자등록번호), then check active/closed status, tax type, and KYB identity match. Data comes live from the Korea National Tax Service (NTS) official open-data API and is returned as clean, English-normalized JSON. No account, no API key, no installation — about 10 free calls/day, then pay-per-call via x402.
 
 ### Tools
 
@@ -150,7 +150,7 @@ curl -s -X POST https://kbv-server-f7vfitmlkq-du.a.run.app/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
 
-Privacy: KBV logs no query contents (business numbers, names, HS codes); a number, search term or HS code passed in a GET URL (status, search, import requirements) does appear in the cloud provider access log for 14 days, while POST and MCP calls send inputs in the request body and are not logged. Data license: Korean government open data, no usage restrictions. Pricing: 10 free calls/day per IP; beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
+Privacy: KBV logs no query contents (business numbers, names, HS codes); a number, search term or HS code passed in a GET URL (status, search, import requirements) does appear in the cloud provider access log for 14 days, while POST and MCP calls send inputs in the request body and are not logged. Data license: Korean government open data, no usage restrictions. Pricing: approximately 10 free calls/day per IP (not strictly enforced); beyond that, pay-per-call via x402 ($0.02–$0.05, USDC on Base).
 
 Please list on https://mcp.so as a remote Streamable HTTP server.
 ````

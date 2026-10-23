@@ -2,7 +2,7 @@
 
 [![M8ven Score](https://m8ven.ai/badge/mcp/wonderfulian/kbv-server)](https://m8ven.ai/mcp/wonderfulian/kbv-server?s=readme) [![M8ven Verified](https://m8ven.ai/badge/mcp/wonderfulian/kbv-server?variant=verified)](https://m8ven.ai/mcp/wonderfulian/kbv-server?s=readme)
 
-**KBV is a hosted MCP server that finds and verifies Korean businesses in real time — 10 free calls/day, then pay-per-call (x402).**
+**KBV is a hosted MCP server that finds and verifies Korean businesses in real time — about 10 free calls/day, then pay-per-call (x402).**
 
 **You only need the company name.** Search `"Samsung Electronics"` — in English or Korean — and KBV returns the matching companies with their 10-digit business registration numbers (사업자등록번호), ranked by confidence. That matters because every other Korean business API assumes you already have the number, which a foreign agent almost never does. The index covers **940,000 companies**: every DART disclosure filer (with English names) plus every vendor registered for public procurement, so small businesses are in it too, not just conglomerates.
 
@@ -24,7 +24,7 @@ Built for AI agents and developers doing KYB / due-diligence on Korean companies
 | Transport | MCP Streamable HTTP (`POST`) |
 | Health check | `GET https://kbv-server-f7vfitmlkq-du.a.run.app/health` → `{"ok":true}` |
 | Authentication | None required |
-| Price | **10 free calls/day** per IP, then pay-per-call via x402 ($0.02–$0.05) — see [Pricing](#pricing) |
+| Price | **About 10 free calls/day** per IP (approximate, not strictly enforced), then pay-per-call via x402 ($0.02–$0.05) — see [Pricing](#pricing) |
 | Tools | `find_korean_business`, `check_korean_business_status`, `check_korean_business_batch`, `verify_korean_business` |
 | REST API | `GET /v1/business/search` · `GET /v1/business/{number}/status` · `POST /v1/business/verify` · `POST /v1/business/batch` — see [REST API](#rest-api) |
 | Name index | 940,000 companies — DART disclosure filers (English names included) + registered public-procurement vendors |
@@ -218,7 +218,7 @@ Verify that a business registration number matches the provided representative n
 
 ## REST API
 
-The same three operations are available as plain HTTP endpoints — same JSON schemas as the MCP tools, no auth. **Append `?free=1` to use the daily free tier** (10 lookups per IP per day); without the flag, unpaid requests return `402` with x402 payment requirements:
+The same three operations are available as plain HTTP endpoints — same JSON schemas as the MCP tools, no auth. **Append `?free=1` to use the daily free tier** (approximately 10 lookups per IP per day); without the flag, unpaid requests return `402` with x402 payment requirements:
 
 ```bash
 # Find a company by name — the free tier returns names, numbers and confidence
@@ -247,7 +247,8 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 
 | `error` | Meaning |
 |---|---|
-| `invalid_business_number` | Input is not a 10-digit number, or the date is not `YYYY-MM-DD`. Nothing was queried. |
+| `invalid_business_number` | The business number is not 10 digits. Nothing was queried. |
+| `invalid_opening_date` | (verify) `opening_date` is not `YYYY-MM-DD`. The number itself was not the problem. Nothing was queried. |
 | `batch_limit_exceeded` | More than 100 numbers in one batch call. Nothing was queried. |
 | `invalid_request` | (REST only) The request body does not match the expected shape. |
 | `upstream_unavailable` | The NTS API is down or over quota and no cached result exists. Retry later. |
@@ -270,13 +271,14 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 ## Pricing
 
 - **The number `124-81-00998` is free and unlimited.** Samsung Electronics — a real, listed company — is exempt from the daily allowance, so wiring up a client costs you nothing. Live NTS data, not a fixture.
-- **Free tier: 10 lookups per IP per day** (a batch call counts one per number), resetting at 00:00 UTC. No account or key is needed. MCP tools use it automatically; REST calls opt in by appending **`?free=1`** — without the flag, REST answers `402` with x402 payment requirements. MCP and REST share the same counter.
+- **Free tier: approximately 10 lookups per IP per day** (a batch call counts one per number), resetting at 00:00 UTC. The counter lives in server memory: it is per server instance and resets whenever the service is redeployed, so treat the number as approximate, not strictly enforced. No account or key is needed. MCP tools use it automatically; REST calls opt in by appending **`?free=1`** — without the flag, REST answers `402` with x402 payment requirements. MCP and REST share the same counter.
 - **Finding is free, confirming is paid.** `GET /v1/business/search?q=…&free=1` returns names, business numbers and confidence within the free tier — an agent that only knows a company name can always reach a number. The paid call adds the `evidence` fields (status, tax type, region, listing) that separate similarly named companies.
 - Beyond the free tier, the REST endpoints are **pay-per-call via the [x402](https://www.x402.org/) protocol** (USDC on Base mainnet, agent-payable — no signup):
   - `GET /v1/business/search` — **$0.02** (candidates with evidence)
   - `GET /v1/business/{number}/status` — **$0.02**
   - `POST /v1/business/verify` — **$0.05**
   - `POST /v1/business/batch` — **$0.02 per number** (authorize up to $2.00, settled at actual usage)
+  - `GET /v1/korea-import/requirements` — **$0.03** (with `?free=1`, a summary: item name, tariff, whether the code is restricted and how many requirements; the paid call adds statutes, approving agencies, certificates and the quoted conditions. HS code `8516710000` is always free and complete)
 - Over-quota MCP tool calls return a `free_tier_exceeded` error that points to the paid REST endpoints above.
 - Fair use: the upstream NTS quota is shared; the free tier keeps light usage free while heavy traffic moves to paid calls.
 

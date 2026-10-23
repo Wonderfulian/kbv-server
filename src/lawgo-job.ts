@@ -13,7 +13,9 @@
  * LAWGO_MODE=elaw — fetches English statute texts (LAWGO_ELAW_MST, comma
  * separated law.go.kr serial numbers) into the bucket.
  * LAWGO_MODE=law — fetches the Korean statutes in force (LAWGO_LAW_IDS, law IDs).
- * LAWGO_MODE=conditions — builds hs/conditions.json from the notice's attachment spreadsheets.
+ * LAWGO_MODE=conditions — builds hs/conditions.json from the notice's attachment spreadsheets
+ * and the statute rows of its body (annexes 1 and 2).
+ * LAWGO_MODE=watch — amendment detection: rebuilds the index only when the notice in force changed.
  *
  * Output never contains the OC: logs carry facts and masked snippets only.
  */
@@ -21,7 +23,15 @@
 import { Storage } from '@google-cloud/storage';
 import dotenv from 'dotenv';
 import { isMainModule } from './is-main.js';
-import { CONDITIONS_PATH, ConditionsError, indexConditionRows, type ConditionsFile, type NoticeInfo } from './hs-conditions.js';
+import {
+  annexLines,
+  CONDITIONS_PATH,
+  ConditionsError,
+  indexAnnexRows,
+  indexConditionRows,
+  type ConditionsFile,
+  type NoticeInfo,
+} from './hs-conditions.js';
 import { createLawGoClient, describeNetworkError, LawGoError, maskOc, xmlText, type LawGoClient } from './lawgo.js';
 import { GcsNameIndexStore, type NameIndexStore } from './name-index-store.js';
 import { RetryableError, withRetry } from './retry.js';
@@ -30,6 +40,8 @@ import { readFirstSheet } from './xlsx.js';
 export const NOTICE_QUERY = '세관장확인물품';
 export const NOTICE_TITLE = '관세법 제226조에 따른 세관장확인물품 및 확인방법 지정고시';
 const PREFIX = 'research/lawgo';
+/** Annex titles in the notice body (statute rows per direction). */
+export const ANNEX_TITLES = { import: '세관장확인대상 수입물품', export: '세관장확인대상 수출물품' } as const;
 
 type Save = (path: string, text: string) => Promise<void>;
 type Log = (info: Record<string, unknown>) => void;
@@ -191,6 +203,14 @@ export async function runConditions(
   };
   const sides = { import: pick('별표 2의2'), export: pick('별표 1의2') } as const;
 
+  // The notice body's statute rows: the fallback when a pair has no HS-level row.
+  const noticeXml = await client.service('admrul', { ID: notice.serial });
+  const groups = { import: indexAnnexRows(annexLines(noticeXml, ANNEX_TITLES.import)), export: indexAnnexRows(annexLines(noticeXml, ANNEX_TITLES.export)) };
+  for (const side of ['import', 'export'] as const) {
+    const g = groups[side];
+    log({ event: 'conditions_annex', side, rows: g.rows, statutes: Object.keys(g.map).length, unresolved: g.unresolved.length });
+  }
+
   const built: Partial<Record<'import' | 'export', Record<string, string>>> = {};
   const unresolved: string[] = [];
   const counts = { import: 0, export: 0 };
@@ -210,10 +230,44 @@ export async function runConditions(
     import: built.import ?? {},
     export: built.export ?? {},
     unresolved: { ...counts, samples: unresolved },
+    statute_groups: {
+      import: groups.import.map,
+      export: groups.export.map,
+      unresolved: [...groups.import.unresolved, ...groups.export.unresolved],
+    },
   };
   await store.writeJson(CONDITIONS_PATH, file, { compact: true });
   log({ event: 'conditions_built', notice_no: notice.notice_no, effective_from: notice.effective_from, unresolved: counts });
   return file;
+}
+
+/**
+ * Amendment watch: one law.go.kr search for the notice in force, compared
+ * with the revision the condition index was built from. Unchanged → a log
+ * line and nothing else. Changed (or no index yet) → rebuild the index, so
+ * quoted conditions never lag the notice by more than one watch interval.
+ * A rebuild that cannot read the new revision's attachments fails the run
+ * loudly rather than leaving the old index in place silently.
+ */
+export async function runWatch(
+  client: LawGoClient,
+  store: NameIndexStore,
+  log: Log,
+  rebuild: () => Promise<ConditionsFile> = () => runConditions(client, store, log),
+): Promise<{ changed: boolean }> {
+  const live = await currentNotice(client);
+  const built = await store.readJson<ConditionsFile>(CONDITIONS_PATH);
+  const was = built?.notice;
+  const changed = !was || was.serial !== live.serial || !built?.statute_groups;
+  log({
+    event: 'notice_watch',
+    changed,
+    live: { serial: live.serial, notice_no: live.notice_no, effective_from: live.effective_from },
+    indexed: was ? { serial: was.serial, notice_no: was.notice_no, effective_from: was.effective_from } : null,
+    ...(was && was.serial === live.serial && !built?.statute_groups ? { reason: 'index predates statute groups' } : {}),
+  });
+  if (changed) await rebuild();
+  return { changed };
 }
 
 /** Korean statute texts in force, by law.go.kr law ID — to align articles with the English versions. */
@@ -257,6 +311,8 @@ if (process.env.VITEST === undefined && isMainModule(import.meta.url)) {
       await runLaw(client, list(process.env.LAWGO_LAW_IDS), save, log);
     } else if (process.env.LAWGO_MODE === 'conditions') {
       await runConditions(client, new GcsNameIndexStore(bucket), log);
+    } else if (process.env.LAWGO_MODE === 'watch') {
+      await runWatch(client, new GcsNameIndexStore(bucket), log);
     } else {
       const ok = await runCheck(client, oc, save, log, { probe: () => probeHomepage() });
       if (!ok) process.exit(2);

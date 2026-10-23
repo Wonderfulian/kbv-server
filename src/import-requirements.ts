@@ -21,7 +21,7 @@
 import type { CustomsClient, CustomsRequirementRow, Direction } from './customs.js';
 import type { ConditionsIndex, NoticeInfo } from './hs-conditions.js';
 import { LAWGO_ATTRIBUTION } from './lawgo.js';
-import { DOCUMENTED_RATE_TYPES, itemPath, type ItemNamesFile, type TariffIndex } from './tariff.js';
+import { DOCUMENTED_RATE_TYPES, TARIFF_DATASET_URL, itemPath, type ItemNamesFile, type TariffIndex } from './tariff.js';
 import {
   KOREAN_NAMES_NOTE,
   normalizeCertificate,
@@ -46,8 +46,17 @@ export const DISCLAIMER =
   'from the governing notice in Korean, which is authoritative; this service does not decide whether a ' +
   'condition applies to your product. Confirm with a licensed customs broker or the listed agency before shipment.';
 
+/**
+ * Why text_en_unofficial stays null. 1,573 distinct import conditions (2026-10-23
+ * count) and the long tail is item-specific thresholds — the Chemical Substances
+ * Control Act alone has 354 distinct texts across 435 HS codes — so a
+ * translation would be per-clause legal drafting, not a lookup table.
+ */
 const CONDITION_NOTE =
-  'Official Korean text, quoted verbatim. The English line is an unofficial aid; decisions must be based on the Korean text.';
+  'The condition is quoted in Korean exactly as published. We do not supply a translation: these clauses set ' +
+  'legal thresholds (voltage ranges, capacity limits, scope carve-outs) where a mistranslation would lead you ' +
+  'to skip a certification you actually need. Read the Korean text, or translate it yourself and verify against ' +
+  'the linked notice.';
 
 export interface TradeDeps {
   customs: CustomsClient;
@@ -109,7 +118,15 @@ function groupRequirements(
       .map((r) => resolveAgency(r.agencyCode, r.agencyName, onMiss));
     const effective = g.map((r) => isoDate(r.aplyStrtDt)).sort()[0];
     const text = conditions?.lookup(direction, hs, statute.law_id);
-    if (text) quoted = true;
+    const group = text ? undefined : conditions?.statuteGroup(direction, statute.law_id);
+    if (text || group) quoted = true;
+    const source = (part: string) => ({
+      notice_name_ko: notice?.name_ko ?? NOTICE_NAME,
+      notice_no: notice?.notice_no ?? null,
+      effective_from: notice?.effective_from ?? null,
+      part,
+      url: NOTICE_URL,
+    });
     return {
       statute_code: statute.code,
       statute_name_ko: statute.name_ko,
@@ -131,24 +148,32 @@ function groupRequirements(
             text_ko: text,
             text_en_unofficial: null,
             granularity: 'hs10',
-            source: {
-              notice_name_ko: notice?.name_ko ?? NOTICE_NAME,
-              notice_no: notice?.notice_no ?? null,
-              effective_from: notice?.effective_from ?? null,
-              part:
-                direction === 'export'
-                  ? '별표 1의2 HSK 10단위로 연계되는 물품의 수출요건 (첨부 엑셀)'
-                  : '별표 2의2 HSK 10단위로 연계되는 물품의 수입요건 (첨부 엑셀)',
-              url: NOTICE_URL,
-            },
+            source: source(
+              direction === 'export'
+                ? '별표 1의2 HSK 10단위로 연계되는 물품의 수출요건 (첨부 엑셀)'
+                : '별표 2의2 HSK 10단위로 연계되는 물품의 수입요건 (첨부 엑셀)',
+            ),
             note: CONDITION_NOTE,
           }
-        : null,
-      ...(text
+        : group
+          ? {
+              items_ko: group.items,
+              text_en_unofficial: null,
+              granularity: 'statute_group',
+              granularity_note:
+                "The HS-level attachment has no row for this code and statute, so this is the statute's row in the " +
+                'notice body: it covers every item under the statute, not this code alone. Each item pairs a scope ' +
+                '(scope_ko) with the documents it requires (documents_ko); find the one that matches your product. ' +
+                'Line breaks follow the annex table layout.',
+              source: source(direction === 'export' ? '별표 1 세관장확인대상 수출물품 (고시 본문)' : '별표 2 세관장확인대상 수입물품 (고시 본문)'),
+              note: CONDITION_NOTE,
+            }
+          : null,
+      ...(text || group
         ? {}
         : {
             condition_note: conditions
-              ? "The notice's HS-level attachment has no condition for this statute and code. Check the governing notice."
+              ? "Neither the notice's HS-level attachment nor its body has a condition for this statute. Check the governing notice."
               : 'The condition index is unavailable right now. Check the governing notice.',
           }),
     };
@@ -178,8 +203,12 @@ function tariffField(tariff: TariffIndex | undefined, hs: string, direction: Dir
       stale: tariff.isStale(today),
       note:
         `Rates as published in the source file${f.source_as_of ? ` dated ${f.source_as_of}` : ''}; amendments ` +
-        'after that date are not included until the next edition. Rate types other than A and C are given as ' +
-        'codes without interpretation — confirm their meaning and eligibility with the Korea Customs Service.',
+        'after that date are not included until the next edition.',
+      rate_types_note:
+        'A = basic rate (기본세율), C = WTO concession rate (WTO 양허세율). The other rate-type codes are defined ' +
+        'by the Korea Customs Service and are given here as codes without interpretation; their meanings can be ' +
+        'checked in the source dataset.',
+      source_dataset_url: TARIFF_DATASET_URL,
       rates,
       ...(gaps.length
         ? {

@@ -17,7 +17,7 @@
  * line must accompany every quotation.
  */
 
-import { resolveStatute } from './trade-dict.js';
+import { lawIdForDamagedTitle, resolveStatute } from './trade-dict.js';
 
 export const CONDITIONS_PATH = 'hs/conditions.json';
 
@@ -32,6 +32,15 @@ export interface NoticeInfo {
   url: string;
 }
 
+/**
+ * One statute's row of annex 2 (import) or 1 (export), as its items: the
+ * scope ("대상법령 및 물품의 범위") beside the documents it needs ("구비요건").
+ * The first item is usually the statute heading, with no documents.
+ */
+export interface StatuteGroup {
+  items: { scope_ko: string; documents_ko: string }[];
+}
+
 export interface ConditionsFile {
   notice: NoticeInfo;
   built_at: string;
@@ -40,6 +49,17 @@ export interface ConditionsFile {
   import: Record<string, string>;
   export: Record<string, string>;
   unresolved: { import: number; export: number; samples: string[] };
+  /**
+   * law ID -> the statute's row in the notice body (annex 2 import, annex 1
+   * export). The fallback when the HS-level spreadsheet has no row for a pair:
+   * coarser (it covers every item under the statute), and said so.
+   * Absent in files built before stage 5.
+   */
+  statute_groups?: {
+    import: Record<string, StatuteGroup>;
+    export: Record<string, StatuteGroup>;
+    unresolved: string[];
+  };
 }
 
 export class ConditionsError extends Error {}
@@ -83,11 +103,94 @@ export function indexConditionRows(rows: string[][]): { map: Record<string, stri
   return { map, unresolved, rows: count };
 }
 
+/** Annex body from the notice XML (lawService admrul), as its CDATA lines. */
+export function annexLines(noticeXml: string, title: string): string[] {
+  for (const unit of noticeXml.split('<별표단위').slice(1)) {
+    const t = /<별표제목>([\s\S]*?)<\/별표제목>/.exec(unit)?.[1] ?? '';
+    if (!cdata(t).join('').includes(title)) continue;
+    const body = /<별표내용>([\s\S]*?)<\/별표내용>/.exec(unit)?.[1] ?? '';
+    return cdata(body).filter((l) => l !== '');
+  }
+  throw new ConditionsError(`the notice has no annex titled ${title}`);
+}
+
+function cdata(s: string): string[] {
+  const parts = [...s.matchAll(/<!\[CDATA\[([\s\S]*?)\]\]>/g)].map((m) => m[1]);
+  return parts.length ? parts : [s.trim()];
+}
+
+/**
+ * Statute rows of the notice's box-drawn table ("가. 대상법령 및 물품의 범위와
+ * 구비요건"). A row starts with "(n)「statute」"; a row cut by a page break
+ * continues in the next table. Within a row, a line blank in both columns
+ * separates items, so "(가) 안전인증대상 제품" stays paired with its document.
+ * Lines keep the annex's own layout (a word can be split across lines) — only
+ * the padding inside the box is trimmed, since rejoining wrapped lines would
+ * mean guessing where the spaces were.
+ */
+export function indexAnnexRows(lines: string[]): { map: Record<string, StatuteGroup>; unresolved: string[]; rows: number } {
+  type Block = { left: string[]; right: string[] };
+  const rows: Block[][] = [];
+  let row: Block[] | undefined;
+  let block: Block | undefined;
+  let open = false;
+  for (const line of lines) {
+    if (/^[┌├└]/.test(line)) {
+      open = !line.startsWith('└');
+      row = undefined;
+      block = undefined;
+      continue;
+    }
+    if (!open || !line.startsWith('│')) continue;
+    const cells = line.split('│');
+    const left = (cells[1] ?? '').trimEnd();
+    const right = (cells[2] ?? '').trimEnd();
+    if (/^대상법령및물품의범위/.test(left.replace(/\s/g, ''))) continue; // repeated header
+    if (!left.trim() && !right.trim()) {
+      block = undefined;
+      continue;
+    }
+    if (!row) {
+      // First line after a rule: a new statute row, or the tail of one split by a page break.
+      const continues = !/^\(\d+\)/.test(left.trim()) && rows.length > 0;
+      row = continues ? rows[rows.length - 1] : [];
+      if (!continues) rows.push(row);
+    }
+    if (!block) row.push((block = { left: [], right: [] }));
+    if (left.trim()) block.left.push(left);
+    if (right.trim()) block.right.push(right);
+  }
+
+  const map: Record<string, StatuteGroup> = {};
+  const unresolved: string[] = [];
+  let count = 0;
+  for (const r of rows) {
+    const flat = r.map((b) => b.left.join('')).join('');
+    if (!/^\(\d+\)/.test(flat.trim())) continue;
+    const name = /「([^」]+)」/.exec(flat)?.[1];
+    if (!name) continue; // "(4) (삭제)"
+    count++;
+    const lawId = resolveStatute('__', name).law_id ?? lawIdForDamagedTitle(name);
+    if (!lawId) {
+      unresolved.push(name.slice(0, 80));
+      continue;
+    }
+    const items = r.map((b) => ({ scope_ko: b.left.join('\n'), documents_ko: b.right.join('\n') }));
+    map[lawId] = { items: [...(map[lawId]?.items ?? []), ...items] };
+  }
+  return { map, unresolved, rows: count };
+}
+
 export class ConditionsIndex {
   constructor(readonly file: ConditionsFile) {}
 
   lookup(direction: 'import' | 'export', hs: string, lawId: string | undefined): string | undefined {
     if (!lawId) return undefined;
     return this.file[direction][`${hs}|${lawId}`];
+  }
+
+  statuteGroup(direction: 'import' | 'export', lawId: string | undefined): StatuteGroup | undefined {
+    if (!lawId) return undefined;
+    return this.file.statute_groups?.[direction][lawId];
   }
 }

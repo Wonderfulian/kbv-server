@@ -34,10 +34,10 @@ export interface McpRequestContext {
 }
 
 const FREE_TIER_MESSAGE =
-  'Daily free tier exceeded for this IP (10 lookups per day, one per business number; resets 00:00 UTC). ' +
+  'Daily free tier exceeded for this IP (about 10 lookups per day, one per business number; resets 00:00 UTC). ' +
   'Paid usage is available via the x402-enabled REST API on this host: ' +
-  'GET /v1/business/{number}/status ($0.02), POST /v1/business/verify ($0.05), ' +
-  'POST /v1/business/batch ($0.02 per number, up to 100). ' +
+  'GET /v1/business/search ($0.02), GET /v1/business/{number}/status ($0.02), POST /v1/business/verify ($0.05), ' +
+  'POST /v1/business/batch ($0.02 per number, up to 100), GET /v1/korea-import/requirements ($0.03). ' +
   'Payments are agent-payable via the x402 protocol (USDC on Base); see the README at ' +
   'https://github.com/Wonderfulian/kbv-server for details.';
 

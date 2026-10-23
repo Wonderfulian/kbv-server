@@ -13,15 +13,19 @@
  * it stay in force until the next edition is loaded (due 2027-01-31, a month
  * after this one runs out), and other end dates are honoured as written.
  *
- * Rate-type codes (A, C, U, F…) are kept raw: their meanings are published
- * only on UNI-PASS, which is not used as a source. A (basic rate) and C (WTO
- * concession) are the two the dataset itself names.
+ * Rate-type codes (A, C, U, F…) are kept raw. A (basic rate) and C (WTO
+ * concession) are the two the dataset itself names; for the rest the response
+ * links the data.go.kr dataset page. Not UNI-PASS: its code table sits behind
+ * a JavaScript menu that an agent cannot follow, signed in or not.
  */
 
 import { editionEndDate, inForce } from './hs-master.js';
 
 export const TARIFF_PATH = 'hs/tariff.json';
 export const ITEM_NAMES_PATH = 'hs/item-names.json';
+
+/** Source dataset page, linked from every tariff block for the rate-type codes. */
+export const TARIFF_DATASET_URL = 'https://www.data.go.kr/data/15051179/fileData.do';
 
 /** The only rate-type meanings the dataset documents itself (data.go.kr 15051179 description). */
 export const DOCUMENTED_RATE_TYPES: Record<string, string> = {

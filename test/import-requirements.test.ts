@@ -125,13 +125,35 @@ describe('importRequirements (service)', () => {
     expect(cond.text_ko).toBe(KC_TEXT);
     expect(cond.granularity).toBe('hs10');
     expect(cond.text_en_unofficial).toBeNull();
-    expect(cond.note).toMatch(/decisions must be based on the Korean text/);
+    expect(cond.note).toMatch(/^The condition is quoted in Korean exactly as published. We do not supply a translation/);
     expect(cond.source).toMatchObject({ notice_no: '제2026-46호', effective_from: '2026-07-16' });
     expect(out.body.attribution).toBe('Source: Ministry of Government Legislation (법제처), law.go.kr');
-    // A statute with no HS-level row says so instead of pretending.
+    // A statute with neither an HS-level row nor a statute row says so instead of pretending.
     const radio = (out.body.requirements as Record<string, unknown>[]).find((r) => r.statute_code === '39')!;
     expect(radio.condition).toBeNull();
-    expect(radio.condition_note).toMatch(/no condition for this statute and code/);
+    expect(radio.condition_note).toMatch(/Neither the notice's HS-level attachment nor its body has a condition/);
+  });
+
+  it("falls back to the statute's row in the notice body, and says it is coarser", async () => {
+    const items = [
+      { scope_ko: '(33)「전파법」해당 물품', documents_ko: '' },
+      { scope_ko: '  (가)적합성평가대상 또는 적합성평가시험 신청\n기자재', documents_ko: 'ㅇ국립전파연구원장의 적합성 평가확인 또는\n사전통관확인서' },
+    ];
+    const file = { ...conditionsFile(), statute_groups: { import: { '001732': { items } }, export: {}, unresolved: [] } };
+    const deps = tradeDeps({ '8516710000': COFFEE }, { conditions: async () => new ConditionsIndex(file) });
+    const out = await importRequirements(deps, COFFEE_HS, 'import', { full: true });
+    const reqs = out.body.requirements as Record<string, unknown>[];
+    const radio = reqs.find((r) => r.statute_code === '39')!;
+    const cond = radio.condition as Record<string, unknown>;
+    expect(cond.granularity).toBe('statute_group');
+    expect(cond.items_ko).toEqual(items);
+    expect(cond.text_en_unofficial).toBeNull();
+    expect(cond.granularity_note).toMatch(/covers every item under the statute, not this code alone/);
+    expect(cond.source).toMatchObject({ part: '별표 2 세관장확인대상 수입물품 (고시 본문)', notice_no: '제2026-46호' });
+    expect(radio).not.toHaveProperty('condition_note');
+    // The HS-level row still wins where it exists.
+    expect((reqs.find((r) => r.statute_code === '23')!.condition as Record<string, unknown>).granularity).toBe('hs10');
+    expect(out.body.attribution).toMatch(/law\.go\.kr/);
   });
 
   it('never decides whether a condition applies', async () => {
@@ -173,6 +195,8 @@ describe('importRequirements (service)', () => {
     const rates = t.rates as Record<string, unknown>[];
     expect(rates.find((r) => r.type === 'A')).toMatchObject({ type_meaning: 'Basic rate (기본세율)', rate: '8' });
     expect(rates.find((r) => r.type === 'FUS1')).not.toHaveProperty('type_meaning');
+    expect(t).toMatchObject({ source_dataset_url: 'https://www.data.go.kr/data/15051179/fileData.do' });
+    expect(JSON.stringify(t)).not.toMatch(/unipass/i);
     expect(t.coverage_gaps).toEqual([{ type: 'FEU1', last_rate: '0', ended_on: '2026-06-30' }]);
     expect(t.coverage_gaps_note).toMatch(/not that no such rate exists/);
   });

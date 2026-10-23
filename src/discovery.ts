@@ -106,7 +106,7 @@ export function buildLlmsTxt(routes?: PricedRoutes, unitNotes: Record<string, st
   return `# Korea Business Verify (KBV)
 
 > Hosted MCP server and REST API that finds Korean companies by name and verifies them against official
-> Korea National Tax Service (NTS) data. 10 free calls per day per IP, then pay-per-call via x402.
+> Korea National Tax Service (NTS) data. About 10 free calls per day per IP, then pay-per-call via x402.
 > No account, no API key, no installation.
 
 Most Korean business APIs require the 10-digit business registration number (사업자등록번호) up front.
@@ -154,7 +154,7 @@ An empty search result is 200 with "candidates": [] and a note — that is an an
 ## Free testing
 
 The number 124-81-00998 (Samsung Electronics, a real public company) is exempt from the daily free tier:
-query it as often as you like while wiring up an integration, without spending your 10 free calls.
+query it as often as you like while wiring up an integration, without spending your free calls.
 
 Example:
 
@@ -163,7 +163,8 @@ Example:
 
 ## Pricing
 
-- 10 free lookups per IP per day, resetting 00:00 UTC. MCP tools use it automatically; REST opts in with ?free=1.
+- Approximately 10 free lookups per IP per day, resetting 00:00 UTC; not strictly enforced (the counter is in
+  server memory, per instance, and resets on redeploy). MCP tools use it automatically; REST opts in with ?free=1.
 ${pricingLines(routes, unitNotes)}
 
 ## Privacy and data source

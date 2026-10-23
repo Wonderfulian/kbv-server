@@ -123,7 +123,7 @@ async function run<T extends StatusResult | VerifyResult>(
     plan = prepare();
   } catch (err) {
     if (err instanceof InvalidInputError) {
-      return done('invalid_input', { outcome: 'invalid_input', error: 'invalid_business_number', message: err.message });
+      return done('invalid_input', { outcome: 'invalid_input', error: err.code, message: err.message });
     }
     return done('internal_error', { outcome: 'internal_error', error: 'internal_error', message: 'Unexpected server error.' });
   }
