@@ -102,6 +102,32 @@ const BAZAAR_IMPORT = {
   tags: ['korea-import', 'customs-requirements', 'import-compliance', 'hs-code', 'korea'],
 };
 
+/** Bazaar example for the import routes — abridged from the live response for the free test code. */
+const IMPORT_EXAMPLE = {
+  hs_code: '8516710000',
+  direction: 'import',
+  item_name_en: 'Coffee or tea makers',
+  hs_code_valid: true,
+  requirements_checked: true,
+  has_requirements: true,
+  requirement_count: 3,
+  requirements: [
+    {
+      statute_name_en: 'Electrical Appliances and Consumer Products Safety Control Act',
+      statute_name_ko: '전기용품 및 생활용품 안전관리법',
+      certificate_name_ko: '전기용품 및 생활용품 요건확인서',
+      approving_agencies: [
+        { code: '105', name_ko: '국가기술표준원', name_en: 'Korean Agency for Technology and Standards' },
+        { code: '257', name_ko: '한국화학융합시험연구원', name_en: 'Korea Testing & Research Institute' },
+      ],
+      agencies_note: 'Any one of the listed agencies may issue this certificate.',
+      condition: { text_ko: '[전기용품 및 생활용품 안전관리법] . 정격전압이 30V초과 1000V이하의 교류전원 …', text_en_unofficial: null, granularity: 'hs10' },
+    },
+  ],
+  attribution: 'Source: Ministry of Government Legislation (법제처), law.go.kr',
+  source: 'Korea Customs Service (KCS)',
+};
+
 /** Real response shape used in Bazaar discovery examples (Samsung Electronics, live lookup). */
 const STATUS_EXAMPLE = {
   business_number: '1248100998',
@@ -209,6 +235,9 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
     quota = createQuota(x402.dailyFreeTier);
     const network = x402.network as Network;
     const payTo = x402.payTo;
+    // BAZAAR COPY PENDING (2026-10-23): the two import-route descriptions below
+    // are provisional. The final wording comes from the owner before the first
+    // real payment, because the first settlement is what gets them indexed.
     const importRoute = {
       accepts: [{ scheme: 'exact', price: '$0.03', network, payTo }],
       description:
@@ -229,6 +258,7 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
             },
             required: ['hs_code'],
           },
+          output: { example: IMPORT_EXAMPLE },
         }),
       },
     };
@@ -260,6 +290,21 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
               direction: { type: 'string', enum: ['import', 'export'], description: 'Default "import"' },
             },
             required: ['hs_codes'],
+          },
+          output: {
+            example: {
+              direction: 'import',
+              results: [IMPORT_EXAMPLE, { hs_code: '7318152000', item_name_en: 'Bolts', has_requirements: false, requirement_count: 0, requirements: [] }],
+              summary: {
+                total: 3,
+                checked: 2,
+                with_requirements: 1,
+                clear: 1,
+                failed: 0,
+                duplicates_merged: 0,
+                invalid_hs: [{ index: 2, input: '9999999999', error: 'hs_code_not_found', message: 'Not a current 10-digit Korean HS (HSK) code.' }],
+              },
+            },
           },
         }),
       },

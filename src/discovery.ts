@@ -123,13 +123,16 @@ Base URL: ${BASE_URL}
 - Is this company currently registered — active, suspended, or closed — and what is its tax type?
 - Does this number match a given representative name and opening date? (KYB identity check)
 - Is anyone on this supplier list barred from public contracts? (부정당업자 제재 screening)
+- What does Korean customs require before it clears this product (by HS code)? Statutes, approving agencies,
+  the certificate to obtain, and each condition quoted in Korean from the governing notice. Up to 100 codes per call.
 
 All responses are English-normalized JSON with ISO 8601 dates.
 
 ## MCP (for AI agents)
 
 - Endpoint (Streamable HTTP, POST): ${BASE_URL}/mcp
-- Tools: find_korean_business, check_korean_business_status, check_korean_business_batch, verify_korean_business
+- Tools: find_korean_business, check_korean_business_status, check_korean_business_batch, verify_korean_business,
+  check_korea_import_requirements, check_korea_import_requirements_batch
 - Example prompts:
   - "Find the Korean business registration number for Samsung Electronics."
   - "Check the status of Korean business 124-81-00998."
@@ -147,6 +150,11 @@ requirements (USDC on Base mainnet, agent-payable, no signup).
   — returns the status fields plus "identity_match": true|false.
 - POST ${BASE_URL}/v1/business/batch — body: {"business_numbers": [...]} up to 100. Returns one entry per
   number plus any public-procurement debarment, and a summary counting how many are currently barred.
+- GET ${BASE_URL}/v1/korea-import/requirements?hs_code={10 digits}&direction=import|export — customs clearance
+  requirements. Free tier: restricted or not, how many requirements, item name, tariff. Paid: statutes, agencies,
+  certificates and the conditions quoted from the notice. Invalid codes get 400 before any payment.
+- POST ${BASE_URL}/v1/korea-import/requirements/batch — body: {"hs_codes": [...], "direction"?} up to 100. Restricted
+  codes first; invalid codes are listed in summary.invalid_hs and not charged.
 
 Status codes: 200 success, 400 invalid input, 402 payment required, 503 upstream unavailable.
 An empty search result is 200 with "candidates": [] and a note — that is an answer, not a failure.
@@ -155,11 +163,13 @@ An empty search result is 200 with "candidates": [] and a note — that is an an
 
 The number 124-81-00998 (Samsung Electronics, a real public company) is exempt from the daily free tier:
 query it as often as you like while wiring up an integration, without spending your free calls.
+HS code 8516710000 (coffee makers) plays the same role for the import-requirements routes: full answer, free.
 
 Example:
 
     curl "${BASE_URL}/v1/business/search?q=Samsung%20Electronics&free=1"
     curl "${BASE_URL}/v1/business/124-81-00998/status"
+    curl "${BASE_URL}/v1/korea-import/requirements?hs_code=8516710000"
 
 ## Pricing
 
@@ -175,6 +185,8 @@ ${pricingLines(routes, unitNotes)}
 - Data source: Korea National Tax Service official open-data API, queried live per request. Name index from
   DART (Financial Supervisory Service) and the Public Procurement Service. Korean government open data,
   no usage restrictions.
+- Import requirements: Korea Customs Service (live). Conditions quoted from the customs designation notice —
+  Source: Ministry of Government Legislation (법제처), law.go.kr. Not a legal customs determination.
 
 ## Docs
 

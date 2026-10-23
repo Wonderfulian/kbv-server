@@ -8,6 +8,8 @@
 
 With a number in hand, KBV returns registration status (active / suspended / closed), tax type, and — optionally — whether the number matches a representative name and opening date. Data comes live from the Korea National Tax Service (NTS) and is returned as clean, English-normalized JSON.
 
+**Shipping goods into Korea?** Give KBV a 10-digit HS code (or up to 100 of them) and it returns what Korean customs requires before clearance: the statutes, the agencies that can approve, the certificate to obtain, and each requirement's condition quoted from the governing notice — see [Import requirements](#check_korea_import_requirements).
+
 No account, no API key, no installation — connect any MCP-capable agent to one URL:
 
 ```
@@ -25,11 +27,11 @@ Built for AI agents and developers doing KYB / due-diligence on Korean companies
 | Health check | `GET https://kbv-server-f7vfitmlkq-du.a.run.app/health` → `{"ok":true}` |
 | Authentication | None required |
 | Price | **About 10 free calls/day** per IP (approximate, not strictly enforced), then pay-per-call via x402 ($0.02–$0.05) — see [Pricing](#pricing) |
-| Tools | `find_korean_business`, `check_korean_business_status`, `check_korean_business_batch`, `verify_korean_business` |
-| REST API | `GET /v1/business/search` · `GET /v1/business/{number}/status` · `POST /v1/business/verify` · `POST /v1/business/batch` — see [REST API](#rest-api) |
+| Tools | `find_korean_business`, `check_korean_business_status`, `check_korean_business_batch`, `verify_korean_business`, `check_korea_import_requirements`, `check_korea_import_requirements_batch` |
+| REST API | `GET /v1/business/search` · `GET /v1/business/{number}/status` · `POST /v1/business/verify` · `POST /v1/business/batch` · `GET /v1/korea-import/requirements` · `POST /v1/korea-import/requirements/batch` — see [REST API](#rest-api) |
 | Name index | 940,000 companies — DART disclosure filers (English names included) + registered public-procurement vendors |
 | Screening | Batch calls also return public-procurement debarments (부정당업자 제재) per company |
-| Data source | Korea National Tax Service (국세청), official open-data API — queried live per request |
+| Data source | Korea National Tax Service (국세청), official open-data API — queried live per request. Import requirements: Korea Customs Service (관세청) and the Ministry of Government Legislation (법제처) |
 | Data license | Korean government open data, **no usage restrictions** (이용허락범위 제한 없음) |
 | Privacy | KBV logs no query contents; numbers, search terms and HS codes in GET URLs reach cloud access logs (14-day retention) — see [Privacy](#privacy) |
 | Discovery | [`/.well-known/x402`](https://kbv-server-f7vfitmlkq-du.a.run.app/.well-known/x402) · [`/llms.txt`](https://kbv-server-f7vfitmlkq-du.a.run.app/llms.txt) |
@@ -216,9 +218,126 @@ Verify that a business registration number matches the provided representative n
 
 `identity_match` is `true` only when the NTS confirms that the number, representative name, and opening date all match its records.
 
+### `check_korea_import_requirements`
+
+What Korean customs requires before it will clear a product, by its 10-digit Korean HS (HSK) code. Goods that need an approval they do not have are held or returned at the border.
+
+**Input:**
+
+```json
+{ "hs_code": "8516710000", "direction": "import" }
+```
+
+- `hs_code`: 10 digits; dots, hyphens and spaces are fine. **6 digits** returns the 10-digit codes under that subheading to choose from — requirements differ between them, so KBV does not guess.
+- `direction`: `"import"` (default, goods entering Korea) or `"export"`.
+- Invalid codes are refused **before** any lookup or payment (`400 hs_code_not_found`). An unknown code is never answered as "no requirements".
+- **`8516710000` (coffee makers) is a free test code**: full response, no allowance used — three statutes and five alternative agencies in one answer.
+
+**Output** (abridged from the real response for `8516710000`):
+
+```json
+{
+  "hs_code": "8516710000",
+  "item_name_en": "Coffee or tea makers",
+  "hs_code_valid": true,
+  "requirements_checked": true,
+  "has_requirements": true,
+  "requirement_count": 3,
+  "requirements": [
+    {
+      "statute_name_en": "Electrical Appliances and Consumer Products Safety Control Act",
+      "statute_name_ko": "전기용품 및 생활용품 안전관리법",
+      "certificate_name_ko": "전기용품 및 생활용품 요건확인서",
+      "certificate_name_en": null,
+      "certificate_name_en_unofficial": "Requirement confirmation for electrical appliances and consumer products",
+      "approving_agencies": [
+        { "code": "105", "name_ko": "국가기술표준원", "name_en": "Korean Agency for Technology and Standards" },
+        { "code": "257", "name_ko": "한국화학융합시험연구원", "name_en": "Korea Testing & Research Institute" }
+      ],
+      "agencies_note": "Any one of the listed agencies may issue this certificate.",
+      "condition": {
+        "text_ko": "[전기용품 및 생활용품 안전관리법]\n. 정격전압이 30V초과 1000V이하의 교류전원 …",
+        "text_en_unofficial": null,
+        "granularity": "hs10",
+        "source": { "notice_no": "제2026-46호", "effective_from": "2026-07-16", "url": "https://www.law.go.kr/행정규칙/…" }
+      }
+    }
+  ],
+  "governing_notice": {
+    "notice_no": "제2026-46호",
+    "index": { "notice_serial": "2100000282502", "last_checked_at": "2026-10-23T01:56:51Z", "check_status": "current" }
+  },
+  "attribution": "Source: Ministry of Government Legislation (법제처), law.go.kr",
+  "tariff": {
+    "source_as_of": "2026-02-11",
+    "rates": [
+      { "type": "A", "type_meaning": "Basic rate (기본세율)", "rate": "8" },
+      { "type": "C", "type_meaning": "WTO concession rate (WTO 협정에 의한 양허관세)", "rate": "16" }
+    ]
+  },
+  "source": "Korea Customs Service (KCS)",
+  "disclaimer": "Fact lookup from public data. Not a legal customs determination. …"
+}
+```
+
+How to read it:
+
+- **One requirement = one statute + one certificate.** The customs API returns one row per approving agency; KBV groups them, so the coffee maker's seven rows are three requirements, and the electrical-safety one lists five agencies — **any one of them** can issue the certificate.
+- **`condition.text_ko` is quoted verbatim** from the customs designation notice and is authoritative. KBV does not translate it (`text_en_unofficial` is always `null`): these clauses set legal thresholds — voltage ranges, capacity limits, scope carve-outs — where a mistranslation would make you skip a certificate you need. KBV also **does not decide whether a condition applies to your product**; only you know its voltage, use or composition.
+- `granularity: "hs10"` means the condition is the notice's row for this exact code. When no such row exists, KBV falls back to the statute's row in the notice body (`"statute_group"`, with `items_ko` pairing each scope with its documents) and says that it is coarser.
+- `governing_notice.index` tells you which revision of the notice the conditions come from and when KBV last confirmed with law.go.kr that it is still the one in force (checked daily). `check_status: "check_overdue"` means that confirmation is three or more days old — open the notice before relying on the conditions.
+- Korean names are authoritative: use `name_ko` when you contact an agency or request a certificate. English agency names appear only where the agency itself publishes one; certificate names have no official English and are marked `_unofficial`.
+- **Tariff**: rates as published in the Korea Customs Service file dated `source_as_of`. Only rate types `A` (basic) and `C` (WTO concession) are named; other codes are returned as-is, with a link to the [source dataset](https://www.data.go.kr/data/15051179/fileData.do). Exports carry no tariff.
+
+**Four states, never confused:**
+
+| Situation | Response |
+|---|---|
+| Valid code, requirements found | `200`, `requirements: [...]` |
+| Valid code, **no** requirements | `200`, `requirements: []` and a note that this is a definitive result (e.g. bolts, `7318152000`) |
+| Invalid code | `400 hs_code_not_found` (or `hs_code_incomplete` with candidates) — nothing looked up, nothing charged |
+| Customs API unreachable | `503 upstream_unavailable` with `requirements_checked: false` — **not** "no requirements". Item name and tariff are still returned. Nothing charged. |
+
+**Free vs paid.** The free tier (`?free=1` on REST) tells you whether the code is restricted and how many requirements it has, plus item name and tariff (`"detail": "summary"`). Statutes, agencies, certificates and the quoted conditions are the paid response. MCP tool calls return the full response within the free allowance.
+
+### `check_korea_import_requirements_batch`
+
+Screen a product catalog in one call: **up to 100 HS codes**, same per-code schema as above.
+
+**Input:**
+
+```json
+{ "hs_codes": ["8516710000", "7318152000", "8471300000", "9999999999"], "direction": "import" }
+```
+
+**Output** (abridged):
+
+```json
+{
+  "direction": "import",
+  "results": [
+    { "hs_code": "8516710000", "has_requirements": true, "requirement_count": 3, "requirements": ["…"] },
+    { "hs_code": "8471300000", "has_requirements": true, "requirements": ["…"] },
+    { "hs_code": "7318152000", "has_requirements": false, "requirements": [] }
+  ],
+  "summary": {
+    "total": 4, "checked": 3, "with_requirements": 2, "clear": 1, "failed": 0, "duplicates_merged": 0,
+    "invalid_hs": [{ "index": 3, "input": "9999999999", "error": "hs_code_not_found", "message": "Not a current 10-digit Korean HS (HSK) code." }]
+  },
+  "governing_notice": { "…": "…" },
+  "attribution": "Source: Ministry of Government Legislation (법제처), law.go.kr",
+  "disclaimer": "…"
+}
+```
+
+- **Restricted codes come first**, then codes that could not be checked, then clear ones — read the top of the list and you have seen what customs will stop. A code that could not be checked is never placed among the clear ones.
+- **Invalid codes do not fail the call.** They are listed in `summary.invalid_hs` (with the 10-digit candidates for a 6-digit input), are not looked up and **are not charged**. A batch with no valid code at all is a free `400 no_valid_hs_codes`.
+- Duplicates are looked up and charged once. Fields that would repeat on every item (notice, attribution, disclaimer) are stated once at the top.
+- Billing: **$0.02 per valid code actually looked up** (the client authorizes $2.00; settlement is the actual usage). A code whose lookup failed is returned with `requirements_checked: false` and is not charged. The test code `8516710000` is free here too.
+
 ## REST API
 
-The same three operations are available as plain HTTP endpoints — same JSON schemas as the MCP tools, no auth. **Append `?free=1` to use the daily free tier** (approximately 10 lookups per IP per day); without the flag, unpaid requests return `402` with x402 payment requirements:
+The same operations are available as plain HTTP endpoints — same JSON schemas as the MCP tools, no auth. **Append `?free=1` to use the daily free tier** (approximately 10 lookups per IP per day); without the flag, unpaid requests return `402` with x402 payment requirements:
 
 ```bash
 # Find a company by name — the free tier returns names, numbers and confidence
@@ -237,9 +356,23 @@ curl -X POST "https://kbv-server-f7vfitmlkq-du.a.run.app/v1/business/verify?free
 curl -X POST "https://kbv-server-f7vfitmlkq-du.a.run.app/v1/business/batch?free=1" \
   -H "Content-Type: application/json" \
   -d '{"business_numbers":["124-81-00998","220-81-62517"]}'
+
+# Import requirements for one HS code — the test code returns the full answer free
+curl "https://kbv-server-f7vfitmlkq-du.a.run.app/v1/korea-import/requirements?hs_code=8516710000"
+
+# Any other code: ?free=1 gives the summary (restricted or not, how many requirements, tariff)
+curl "https://kbv-server-f7vfitmlkq-du.a.run.app/v1/korea-import/requirements?hs_code=7318152000&free=1"
+
+# Exports: add direction=export
+curl "https://kbv-server-f7vfitmlkq-du.a.run.app/v1/korea-import/requirements?hs_code=8516710000&direction=export"
+
+# Screen a catalog (up to 100 codes; invalid ones are reported, not charged)
+curl -X POST "https://kbv-server-f7vfitmlkq-du.a.run.app/v1/korea-import/requirements/batch?free=1" \
+  -H "Content-Type: application/json" \
+  -d '{"hs_codes":["8516710000","7318152000","9999999999"]}'
 ```
 
-HTTP status codes: `200` success (including cache-served results), `400` invalid input, `402` payment required (no `?free=1`, or the daily free tier is exhausted — pay per call via x402), `503` NTS temporarily unavailable with no cached result.
+HTTP status codes: `200` success (including cache-served results), `400` invalid input, `402` payment required (no `?free=1`, or the daily free tier is exhausted — pay per call via x402), `503` upstream (NTS or Korea Customs Service) temporarily unavailable with no cached result.
 
 ## Errors
 
@@ -249,9 +382,13 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 |---|---|
 | `invalid_business_number` | The business number is not 10 digits. Nothing was queried. |
 | `invalid_opening_date` | (verify) `opening_date` is not `YYYY-MM-DD`. The number itself was not the problem. Nothing was queried. |
-| `batch_limit_exceeded` | More than 100 numbers in one batch call. Nothing was queried. |
+| `batch_limit_exceeded` | More than 100 numbers (or HS codes) in one batch call. Nothing was queried. |
 | `invalid_request` | (REST only) The request body does not match the expected shape. |
-| `upstream_unavailable` | The NTS API is down or over quota and no cached result exists. Retry later. |
+| `upstream_unavailable` | The NTS or Korea Customs Service API is down or over quota and no cached result exists. Retry later. For import requirements this is never a "no requirements" answer (`requirements_checked: false`). |
+| `hs_code_not_found` | Not a current 10-digit Korean HS code. Nothing was looked up or charged. |
+| `hs_code_incomplete` | A 6-digit subheading: the response lists the 10-digit `candidates`. Choose one and ask again. Nothing was charged. |
+| `no_valid_hs_codes` | (import batch) None of the submitted codes is valid; `invalid_hs` says why for each. Nothing was charged. |
+| `hs_master_unavailable` | The HS code table could not be loaded, so codes cannot be validated. Retry shortly. Nothing was charged. |
 
 ## Data source and license
 
@@ -259,12 +396,13 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 - The underlying dataset is published under the Korean government open-data policy with **no usage restrictions** (이용허락범위: 제한 없음), so responses may be used commercially and cited freely.
 - KBV normalizes the Korean-language, code-based NTS responses into the stable English JSON schema documented above; raw NTS payloads are never passed through.
 - Freshness: queries hit the NTS registry directly. Newly registered businesses may take 1–2 business days to appear in the NTS system itself.
+- **Import requirements** come live from the Korea Customs Service requirements API. Conditions are quoted from the customs designation notice (관세법 제226조 지정고시) published by the **Ministry of Government Legislation** (법제처, law.go.kr) — every response that quotes them carries the attribution `Source: Ministry of Government Legislation (법제처), law.go.kr`. The notice is checked daily for amendments and the condition index is rebuilt when it changes. HS codes and item names: Korea Customs Service HS code table (data.go.kr 15049722); tariff rates: [관세청_품목번호별 관세율표](https://www.data.go.kr/data/15051179/fileData.do) (data.go.kr 15051179), published yearly.
 
 ## Privacy
 
 - **KBV's own logs never contain query contents.** The service writes only event counts, outcomes, and latency; business numbers, representative names, and addresses are never written to them, and are sent nowhere except the official NTS API that answers the query.
 - **One exception, inherent to HTTP:** the three GET endpoints carry their input in the URL — `GET /v1/business/{number}/status` the business number, `GET /v1/business/search?q=` the company name or number you search for, `GET /v1/korea-import/requirements?hs_code=` the HS code you look up — so it appears in the platform access log that Google Cloud Run records for every request. Those entries are retained for **14 days**, then deleted automatically. KBV cannot mask a single field inside them: Cloud Logging filters whole entries, it does not rewrite them.
-- **Not affected:** `POST /v1/business/verify`, `POST /v1/business/batch` and all MCP tool calls (including `find_korean_business` and `check_korea_import_requirements`) send their inputs in the request body, which access logs do not record. Prefer these if you would rather no identifier, search term or HS code appear in any log.
+- **Not affected:** `POST /v1/business/verify`, `POST /v1/business/batch`, `POST /v1/korea-import/requirements/batch` and all MCP tool calls (including `find_korean_business` and `check_korea_import_requirements`) send their inputs in the request body, which access logs do not record. Prefer these if you would rather no identifier, search term or HS code appear in any log.
 - For context, a Korean business registration number is a public company identifier rather than personal data — though a sole proprietorship is registered to an individual, so the distinction above is worth knowing.
 - A short-lived in-memory cache (24 h max, hashed keys) exists solely so the service can answer during NTS outages; it is never shared or exported.
 
@@ -279,6 +417,7 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
   - `POST /v1/business/verify` — **$0.05**
   - `POST /v1/business/batch` — **$0.02 per number** (authorize up to $2.00, settled at actual usage)
   - `GET /v1/korea-import/requirements` — **$0.03** (with `?free=1`, a summary: item name, tariff, whether the code is restricted and how many requirements; the paid call adds statutes, approving agencies, certificates and the quoted conditions. HS code `8516710000` is always free and complete)
+  - `POST /v1/korea-import/requirements/batch` — **$0.02 per valid HS code looked up** (authorize up to $2.00, settled at actual usage; invalid codes, failed lookups and `8516710000` are not charged)
 - Over-quota MCP tool calls return a `free_tier_exceeded` error that points to the paid REST endpoints above.
 - Fair use: the upstream NTS quota is shared; the free tier keeps light usage free while heavy traffic moves to paid calls.
 
