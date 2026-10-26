@@ -94,12 +94,13 @@ const BAZAAR_SEARCH = {
 
 const BAZAAR_IMPORT_BATCH = {
   serviceName: BAZAAR_SERVICE_NAME,
-  tags: ['catalog-screening', 'import-restrictions', 'customs-requirements', 'hs-code', 'korea'],
+  // At most 5 tags: @x402/extensions keeps the first five and drops the rest silently (MAX_TAGS).
+  tags: ['screen-catalog', 'korea-import', 'hs-code', 'bulk-import-check', 'cross-border-ecommerce'],
 };
 
 const BAZAAR_IMPORT = {
   serviceName: BAZAAR_SERVICE_NAME,
-  tags: ['korea-import', 'customs-requirements', 'import-compliance', 'hs-code', 'korea'],
+  tags: ['korea-import', 'customs-clearance', 'kc-certification', 'mfds', 'hs-code'],
 };
 
 /** Bazaar example for the import routes — abridged from the live response for the free test code. */
@@ -235,18 +236,16 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
     quota = createQuota(x402.dailyFreeTier);
     const network = x402.network as Network;
     const payTo = x402.payTo;
-    // BAZAAR COPY PENDING (2026-10-23): the two import-route descriptions below
-    // are provisional. The final wording comes from the owner before the first
-    // real payment, because the first settlement is what gets them indexed.
+    // Bazaar copy (owner's wording, 2026-10-26): the first line names the
+    // situation the agent is stuck in, not the feature — what moved
+    // a route from #5 to #1 in catalog search was a rewrite of that kind.
     const importRoute = {
       accepts: [{ scheme: 'exact', price: '$0.03', network, payTo }],
       description:
-        'Check what Korean import clearance requirements apply to a product by its HS code. Goods that need ' +
-        'an unmet approval are held or returned at Korean customs. Returns which statutes require clearance, ' +
-        'which agencies can approve (often several, any one of which suffices), the certificate to obtain, and ' +
-        "each requirement's condition quoted from the governing notice (Korean original, authoritative) — plus " +
-        'tariff rates. Korea Customs Service and Ministry of Government Legislation data. Fact lookup only, not ' +
-        'a legal customs determination.',
+        'Find out what Korea requires before you ship. Give an HS code and get back which statutes gate customs ' +
+        'release, which agencies can issue the approval (often several — any one will do), the exact certificate ' +
+        'name, and the condition text quoted verbatim from the governing notice. Goods that need an unmet approval ' +
+        'are held or returned at the border. Source: Korea Customs Service and the Ministry of Government Legislation.',
       mimeType: 'application/json',
       ...BAZAAR_IMPORT,
       extensions: {
@@ -267,10 +266,10 @@ export function buildApp(deps: Deps, x402?: X402Options): express.Express {
       // valid code actually looked up.
       accepts: [{ scheme: 'upto', price: '$2.00', network, payTo }],
       description:
-        'Screen a product catalog for Korean import restrictions in one call. Submit up to 100 HS codes and get ' +
-        'back what is restricted, with the statute, the approving agencies and the certificate required for each. ' +
-        'Use before opening a Korea shipping lane or listing a catalog for Korean buyers. $0.02 per valid code; ' +
-        'invalid codes are reported, not charged.',
+        'Screen a product catalog for Korean import restrictions in one call. Submit up to 100 HS codes; the ' +
+        'restricted ones come back first, each with the statute, the approving agencies, the certificate required ' +
+        'and the condition text from the notice. Codes that could not be checked are listed before the clear ones, ' +
+        'so "unverified" is never mistaken for "clear".',
       mimeType: 'application/json',
       ...BAZAAR_IMPORT_BATCH,
       extensions: {
