@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { isTestBusinessNumber, SOURCE, TEST_BUSINESS_NUMBER, type StatusResult, type VerifyResult } from './normalize.js';
 import { importRequirements, TEST_HS_CODE } from './import-requirements.js';
 import { classifyHsCodes, importRequirementsBatch, MAX_HS_BATCH } from './import-batch.js';
+import { observeToolRejections } from './tool-rejections.js';
 import {
   checkStatus,
   checkStatusBatch,
@@ -398,6 +399,11 @@ export function buildMcpServer(deps: Deps, ctx?: McpRequestContext): McpServer {
         };
       },
     );
+  }
+
+  if (deps.onToolRejected && !observeToolRejections(server, deps.onToolRejected)) {
+    // The SDK moved its internals: calls are still answered, but rejections are invisible again.
+    deps.onToolRejected({ tool: '(observer_inactive)', stage: 'schema', issues: [] });
   }
 
   return server;

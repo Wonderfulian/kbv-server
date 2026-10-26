@@ -241,6 +241,8 @@ const deps: Deps = {
   nts,
   // Metrics only — no business numbers or names ever reach the logs.
   log: (info) => console.log(JSON.stringify({ event: 'tool_call', ...info })),
+  // Field names and failure kinds only (no values); kept 90 days like tool_call.
+  onToolRejected: (r) => console.log(JSON.stringify({ event: 'tool_rejected', ...r })),
   ...(search ? { search } : {}),
   ...(sanctions ? { sanctions } : {}),
   ...(hsMaster

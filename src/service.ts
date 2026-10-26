@@ -23,6 +23,7 @@ import {
   type VerifyResult,
 } from './normalize.js';
 import { MAX_BATCH, NtsError, type NtsClient, type NtsStatusItem } from './nts.js';
+import type { ToolRejection } from './tool-rejections.js';
 
 export type ToolOutcome =
   | 'ok'
@@ -37,6 +38,8 @@ export interface Deps {
   cache: KbvCache;
   /** Metrics only — implementations must not receive or log query contents. */
   log?: (info: { tool: string; outcome: ToolOutcome; ms: number }) => void;
+  /** MCP calls the SDK rejected before any handler ran: tool, field and failure kind only — never values. */
+  onToolRejected?: (r: ToolRejection) => void;
   /**
    * Name search, injected only where a name index is configured. Absent on a
    * plain deployment, which then answers 503 for the search route rather than
