@@ -11,7 +11,7 @@
  * requests already answer 402 — no free-tier burn needed.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { x402Client, wrapFetchWithPayment, x402HTTPClient } from '@x402/fetch';
 import { ExactEvmScheme } from '@x402/evm/exact/client';
 import { UptoEvmScheme } from '@x402/evm/upto/client';
@@ -58,6 +58,22 @@ const ROUTES = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ business_numbers: ['124-81-00998', '220-81-62517'] }),
+    },
+  },
+  // The test HS code 8516710000 is free and never asks for payment, so these
+  // use real codes: portable computers (2 requirements) and bolts (none).
+  import: {
+    label: 'import requirements (exact $0.03)',
+    url: `${BASE}/v1/korea-import/requirements?hs_code=8471300000`,
+    init: { method: 'GET' },
+  },
+  importBatch: {
+    label: 'import requirements batch (upto $2.00 ceiling, settles 2 x $0.02)',
+    url: `${BASE}/v1/korea-import/requirements/batch`,
+    init: {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hs_codes: ['8471300000', '7318152000'] }),
     },
   },
 };
@@ -114,6 +130,7 @@ for (const name of wanted) {
   for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
     const res = await fetchWithPayment(route.url, route.init);
     const body = await res.text();
+    if (process.env.KBV_SAVE_DIR) writeFileSync(`${process.env.KBV_SAVE_DIR}/paid-${name}.json`, body);
     console.log(`\n${route.label} (attempt ${attempt}): HTTP ${res.status}`);
     console.log('  body:', body.slice(0, 180));
     try {
