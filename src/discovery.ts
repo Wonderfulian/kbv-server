@@ -105,8 +105,8 @@ export function pricingLines(routes?: PricedRoutes, unitNotes: Record<string, st
 export function buildLlmsTxt(routes?: PricedRoutes, unitNotes: Record<string, string> = {}): string {
   return `# Korea Business Verify (KBV)
 
-> Hosted MCP server and REST API that finds Korean companies by name and verifies them against official
-> Korea National Tax Service (NTS) data. About 10 free calls per day per IP, then pay-per-call via x402.
+> Hosted MCP server and REST API that finds Korean companies by name and verifies them against
+> Korea National Tax Service (NTS) public data. About 10 free calls per day per IP, then pay-per-call via x402.
 > No account, no API key, no installation.
 
 Most Korean business APIs require the 10-digit business registration number (사업자등록번호) up front.
@@ -179,12 +179,20 @@ ${pricingLines(routes, unitNotes)}
 
 ## Privacy and data source
 
+- KBV is an independent service, not operated, endorsed or affiliated with the Korea National Tax Service,
+  the Korea Customs Service, the Public Procurement Service, the Financial Supervisory Service (DART) or the
+  Ministry of Government Legislation. It reads their public open data.
 - KBV's own logs never contain query contents. A number, search term or HS code passed in a GET URL
   (status, search, import requirements) does appear in the cloud provider's access log for 14 days; POST
   and MCP calls send inputs in the request body and are not logged.
-- Data source: Korea National Tax Service official open-data API, queried live per request. Name index from
-  DART (Financial Supervisory Service) and the Public Procurement Service. Korean government open data,
-  no usage restrictions.
+- Where inputs go: status, verify and batch send business numbers (verify also the representative name,
+  opening date and optional address) to the NTS API (api.odcloud.kr). Name search does not send the search
+  term anywhere: it is matched against KBV's own index; DART (opendart.fss.or.kr) receives a candidate's
+  DART company code when KBV lacks its business number, and the NTS receives candidates' business numbers
+  when evidence is returned. Import requirements send HS codes to the Korea Customs Service (apis.data.go.kr).
+- Data sources: NTS business registration service on data.go.kr, read live per request. Name index from
+  DART (Financial Supervisory Service) and the Public Procurement Service; debarment records from KBV's copy
+  of the Public Procurement Service list. Korean government open data, no usage restrictions.
 - Import requirements: Korea Customs Service (live). Conditions quoted from the customs designation notice —
   Source: Ministry of Government Legislation (법제처), law.go.kr. Not a legal customs determination.
 

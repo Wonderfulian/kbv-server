@@ -31,7 +31,7 @@ Built for AI agents and developers doing KYB / due-diligence on Korean companies
 | REST API | `GET /v1/business/search` · `GET /v1/business/{number}/status` · `POST /v1/business/verify` · `POST /v1/business/batch` · `GET /v1/korea-import/requirements` · `POST /v1/korea-import/requirements/batch` — see [REST API](#rest-api) |
 | Name index | 940,000 companies — DART disclosure filers (English names included) + registered public-procurement vendors |
 | Screening | Batch calls also return public-procurement debarments (부정당업자 제재) per company |
-| Data source | Korea National Tax Service (국세청), official open-data API — queried live per request. Import requirements: Korea Customs Service (관세청) and the Ministry of Government Legislation (법제처) |
+| Data source | Public data from the Korea National Tax Service (국세청), read live per request through the government open-data portal (data.go.kr); name index from DART (금융감독원) and the Public Procurement Service (조달청); import requirements from the Korea Customs Service (관세청) and the Ministry of Government Legislation (법제처). KBV is independent and not affiliated with any of them — see [Data source and license](#data-source-and-license) |
 | Data license | Korean government open data, **no usage restrictions** (이용허락범위 제한 없음) |
 | Privacy | KBV logs no query contents; numbers, search terms and HS codes in GET URLs reach cloud access logs (14-day retention) — see [Privacy](#privacy) |
 | Discovery | [`/.well-known/x402`](https://kbv-server-f7vfitmlkq-du.a.run.app/.well-known/x402) · [`/llms.txt`](https://kbv-server-f7vfitmlkq-du.a.run.app/llms.txt) |
@@ -392,7 +392,12 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 
 ## Data source and license
 
-- All data comes from the **Korea National Tax Service (국세청)** via the official Korean government open-data API (data.go.kr: 사업자등록정보 진위확인 및 상태조회 서비스), queried **live on every request** — KBV stores no business database.
+- **KBV is an independent service.** It is not operated, endorsed or affiliated with the Korea National Tax Service (국세청), the Korea Customs Service (관세청), the Public Procurement Service (조달청), the Financial Supervisory Service (금융감독원, DART) or the Ministry of Government Legislation (법제처). It reads their public open data and says so in every response.
+- **Where the data comes from:**
+  - **Registration status, tax type, identity match** — Korea National Tax Service (국세청) business registration service on data.go.kr (사업자등록정보 진위확인 및 상태조회 서비스), queried **live on every request**. KBV keeps no copy of NTS registration data beyond the 24-hour outage cache described under Privacy.
+  - **Name index** (`find_korean_business`) — KBV's own index built from DART disclosure filers (Financial Supervisory Service, 금융감독원) and vendors registered with the Public Procurement Service (조달청). When a DART filer's business number is not yet in the index, it is looked up from DART at search time.
+  - **Debarment records** (batch) — KBV's own copy of the Public Procurement Service (조달청) sanctions list (부정당업자 제재); no external call at request time.
+  - **Import requirements** — see the next bullets.
 - The underlying dataset is published under the Korean government open-data policy with **no usage restrictions** (이용허락범위: 제한 없음), so responses may be used commercially and cited freely.
 - KBV normalizes the Korean-language, code-based NTS responses into the stable English JSON schema documented above; raw NTS payloads are never passed through.
 - Freshness: queries hit the NTS registry directly. Newly registered businesses may take 1–2 business days to appear in the NTS system itself.
@@ -400,7 +405,18 @@ Errors are returned as MCP tool errors (or REST 4xx/5xx responses) with a machin
 
 ## Privacy
 
-- **KBV's own logs never contain query contents.** The service writes only event counts, outcomes, and latency; business numbers, representative names, and addresses are never written to them, and are sent nowhere except the official NTS API that answers the query.
+- **KBV's own logs never contain query contents.** The service writes only event counts, outcomes, and latency — never business numbers, names, addresses, search terms or HS codes.
+- **Where your inputs go.** Each tool sends an upstream only what that upstream needs to answer:
+
+  | Tool / route | Sent to | What is sent |
+  |---|---|---|
+  | `check_korean_business_status` · `GET /v1/business/{number}/status` | Korea National Tax Service, `api.odcloud.kr` | the business number |
+  | `verify_korean_business` · `POST /v1/business/verify` | Korea National Tax Service, `api.odcloud.kr` | business number, representative name, opening date, and the address if you give one |
+  | `check_korean_business_batch` · `POST /v1/business/batch` | Korea National Tax Service, `api.odcloud.kr` | the business numbers (debarment records come from KBV's own copy) |
+  | `find_korean_business` · `GET /v1/business/search` | **DART**, `opendart.fss.or.kr` — and Korea National Tax Service, `api.odcloud.kr` | **Your search term is not sent anywhere**; it is matched against KBV's own index. For the matching companies: DART receives a candidate's DART company code (`corp_code`) when KBV does not yet hold its business number, and the NTS receives the candidates' business numbers when the response includes evidence (every MCP call; paid REST calls) |
+  | `check_korea_import_requirements` · `..._batch` · `/v1/korea-import/requirements` | Korea Customs Service, `apis.data.go.kr` | the HS code(s) and the direction (import/export) |
+
+  A DART company code identifies a company, so DART can see which companies' numbers were looked up — not the words you typed. KBV also reads its own index files from Google Cloud Storage in its own project; no query data is written there.
 - **One exception, inherent to HTTP:** the three GET endpoints carry their input in the URL — `GET /v1/business/{number}/status` the business number, `GET /v1/business/search?q=` the company name or number you search for, `GET /v1/korea-import/requirements?hs_code=` the HS code you look up — so it appears in the platform access log that Google Cloud Run records for every request. Those entries are retained for **14 days**, then deleted automatically. KBV cannot mask a single field inside them: Cloud Logging filters whole entries, it does not rewrite them.
 - **Not affected:** `POST /v1/business/verify`, `POST /v1/business/batch`, `POST /v1/korea-import/requirements/batch` and all MCP tool calls (including `find_korean_business` and `check_korea_import_requirements`) send their inputs in the request body, which access logs do not record. Prefer these if you would rather no identifier, search term or HS code appear in any log.
 - For context, a Korean business registration number is a public company identifier rather than personal data — though a sole proprietorship is registered to an individual, so the distinction above is worth knowing.
